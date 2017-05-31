@@ -2,37 +2,33 @@ params = require 'params'
 trading = require 'trading'
 talib = require 'talib'
 
-_limit = params.add 'Pair Limit (%) ', 50
-_volume = params.add 'Order Minimum  ', 0.01
+_smoothing = params.add 'Smoothing', 2
+_assetLimit = params.add 'Asset Limit (%)', 50
+_currencyLimit = params.add 'Currency Limit (%)', 50
+_volume = params.add 'Order Minimum', 0.01
 
 class Functions
-    @ema: (instrument, optInTimePeriod, lag = 0) ->
-        results = talib.EMA
-            inReal: instrument.close
-            startIdx: 0
-            endIdx: instrument.close.length - 1 - lag
-            optInTimePeriod: optInTimePeriod
-        _.last(results)
-    @donchianMax: (instrument, optInTimePeriod) ->
-        _.max(_.slice(instrument.close, instrument.close.length - optInTimePeriod))
-    @donchianMin: (instrument, optInTimePeriod) ->
-        _.min(_.slice(instrument.close, instrument.close.length - optInTimePeriod))
+    @donchianMax: (inReal, optInTimePeriod) ->
+        _.max(_.slice(inReal, inReal.length - optInTimePeriod))
+    @donchianMin: (inReal, optInTimePeriod) ->
+        _.min(_.slice(inReal, inReal.length - optInTimePeriod))
 
 init: (context)->
-    context.emaPeriod = 2
     context.donchianPeriod = 26
 
-    context.tradeLimit = _limit / 100
+    context.emaPeriod = _smoothing
+    context.assetLimit = _assetLimit / 100
+    context.currencyLimit = _currencyLimit / 100
     context.tradeMinimum = _volume
 
 availableCurrency: (currency) ->
-    currency.amount * @context.tradeLimit
+    currency.amount * @context.currencyLimit
     
 availableVolume: (currency, instrument) ->
     @availableCurrency(currency) / instrument.price
     
 availableAssets: (asset) ->
-    asset.amount * @context.tradeLimit
+    asset.amount * @context.assetLimit
 
 handle: (context, data)->
     instrument  = data.instruments[0]
@@ -41,15 +37,20 @@ handle: (context, data)->
     currency = @portfolio.positions[instrument.curr()]
     asset = @portfolio.positions[instrument.asset()]
     value = (asset.amount * price) + currency.amount
+    
+    ema = talib.EMA
+        inReal: instrument.close
+        startIdx: 0
+        endIdx: instrument.close.length - 1
+        optInTimePeriod: context.emaPeriod
 
-    ema = Functions.ema(instrument, context.emaPeriod)
-    dMax = Functions.donchianMax(instrument, context.donchianPeriod)
-    dMin = Functions.donchianMin(instrument, context.donchianPeriod)
+    dMax = Functions.donchianMax(ema, context.donchianPeriod)
+    dMin = Functions.donchianMin(ema, context.donchianPeriod)
     
     #debug "#{dMax} #{price} #{dMin}"
 
     plot
-        ema: ema
+        ema: _.last(ema)
         dMax: dMax
         dMin: dMin
         
