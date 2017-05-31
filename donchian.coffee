@@ -2,9 +2,8 @@ params = require 'params'
 trading = require 'trading'
 talib = require 'talib'
 
-_fee = params.add 'Fee', 0
-_limit = params.add 'Limit', 250
-_volume = params.add 'Order Minimum', 0.01
+_limit = params.add 'Pair Limit (%) ', 50
+_volume = params.add 'Order Minimum  ', 0.01
 
 class Functions
     @ema: (instrument, optInTimePeriod, lag = 0) ->
@@ -19,43 +18,21 @@ class Functions
     @donchianMin: (instrument, optInTimePeriod) ->
         _.min(_.slice(instrument.close, instrument.close.length - optInTimePeriod))
 
-class State
-    buy: (price, volume) ->
-        @position = 'LONG'
-        @price = price
-        @volume = volume
-    sell: (price, volume) ->
-        @position = 'SHORT'
-        @price = price
-        @volume = volume
-    total: ->
-        @price * @volume
-    cancel: ->
-        @position = null
-
-
 init: (context)->
     context.emaPeriod = 2
     context.donchianPeriod = 26
 
+    context.tradeLimit = _limit / 100
     context.tradeMinimum = _volume
-    context.tradeFee = _fee / 100
-    context.state = new State(_fee)
-            
-valueMinusFee: (value, fee) ->
-    value - (value * fee) 
+
+availableCurrency: (currency) ->
+    currency.amount * @context.tradeLimit
     
-valuePlusFee: (value, fee) ->
-    value + (value * fee)
-            
-availableCurrency: (context) ->
-    @valueMinusFee(context.currencyLimit, context.tradeFee)
+availableVolume: (currency, instrument) ->
+    @availableCurrency(currency) / instrument.price
     
-availableVolume: (context, instrument) ->
-    @availableCurrency(context) / instrument.price
-    
-availableAssets: (context, instrument) ->
-    context.assetLimit
+availableAssets: (asset) ->
+    asset.amount * @context.tradeLimit
 
 handle: (context, data)->
     instrument  = data.instruments[0]
@@ -63,43 +40,34 @@ handle: (context, data)->
     
     currency = @portfolio.positions[instrument.curr()]
     asset = @portfolio.positions[instrument.asset()]
-    value = (asset.amount * instrument.price) + currency.amount
-    
-    if context.assetLimit == undefined
-        context.currencyLimit = Math.min(_limit, currency.amount)
-        context.assetLimit = Math.min(context.currencyLimit / instrument.price, asset.amount)
-        debug "LIMIT #{context.currencyLimit} / #{context.assetLimit}"
+    value = (asset.amount * price) + currency.amount
 
     ema = Functions.ema(instrument, context.emaPeriod)
     dMax = Functions.donchianMax(instrument, context.donchianPeriod)
     dMin = Functions.donchianMin(instrument, context.donchianPeriod)
     
-    #debug "#{dMax} #{instrument.price} #{dMin}"
+    #debug "#{dMax} #{price} #{dMin}"
 
     plot
         ema: ema
         dMax: dMax
         dMin: dMin
         
-    if price >= dMax    
-        context.state.buy(instrument.price, @availableVolume(context, instrument));
+    if price >= dMax and context.position != 'LONG'
+        volume = @availableVolume(currency, instrument)
         debug "#{instrument.curr()} #{currency.amount} + #{instrument.asset()} #{asset.amount} = #{value}"
-        debug "BUY #{context.state.volume} @ #{context.state.price} = #{context.state.total()} (#{@valuePlusFee(context.state.total(), context.tradeFee)})"
+        debug "BUY #{volume} @ #{price} = #{volume * price}"
 
-        if context.state.volume > context.tradeMinimum and trading.buy instrument, 'market', context.state.volume
-            context.currencyLimit -= @valuePlusFee(context.state.total(), context.tradeFee)
-            context.assetLimit += context.state.volume
-            debug "LIMIT #{context.currencyLimit} / #{context.assetLimit}"
-        else
-            context.state.cancel
-    else if price <= dMin
-        context.state.sell(instrument.price, @availableAssets(context, instrument));
+        if volume > context.tradeMinimum and trading.buy instrument, 'market', volume
+            context.position = 'LONG'
+            context.price = price
+            context.volume = volume
+    else if price <= dMin and context.position != 'SHORT'
+        volume = @availableAssets(asset)
         debug "#{instrument.curr()} #{currency.amount} + #{instrument.asset()} #{asset.amount} = #{value}"
-        debug "SELL #{context.state.volume} @ #{context.state.price} = #{context.state.total()} (#{@valuePlusFee(context.state.total(), context.tradeFee)})"
+        debug "SELL #{volume} @ #{price} = #{volume * price}"
 
-        if context.state.volume > context.tradeMinimum and trading.sell instrument, 'market', context.state.volume
-            context.assetLimit -= context.state.volume
-            context.currencyLimit += @valuePlusFee(context.state.total(), context.tradeFee)
-            debug "LIMIT #{context.currencyLimit} / #{context.assetLimit}"
-        else
-            context.state.cancel
+        if volume > context.tradeMinimum and trading.sell instrument, 'market', volume
+            context.position = 'SHORT'
+            context.price = price
+            context.volume = volume
