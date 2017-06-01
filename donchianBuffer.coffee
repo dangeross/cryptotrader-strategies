@@ -2,20 +2,15 @@ params = require 'params'
 trading = require 'trading'
 talib = require 'talib'
 
+_position = params.addOptions 'Position', ['NONE', 'LONG', 'SHORT'], 'NONE'
 _smoothing = params.add 'Smoothing', 2
 _buffer = params.add 'Buffer (%)', 30
 _assetLimit = params.add 'Asset Limit (%)', 50
 _currencyLimit = params.add 'Currency Limit (%)', 50
 _volume = params.add 'Order Minimum', 0.01
+_timeout = params.add 'Order Timeout', 60
 
 class Functions
-    @ema: (inReal, optInTimePeriod, lag = 0) ->
-        results = talib.EMA
-            inReal: inReal
-            startIdx: 0
-            endIdx: inReal.length - 1 - lag
-            optInTimePeriod: optInTimePeriod
-        _.last(results)
     @donchianMax: (inReal, optInTimePeriod) ->
         _.max(_.slice(inReal, inReal.length - optInTimePeriod))
     @donchianMin: (inReal, optInTimePeriod) ->
@@ -29,6 +24,8 @@ init: (context)->
     context.assetLimit = _assetLimit / 100
     context.currencyLimit = _currencyLimit / 100
     context.tradeMinimum = _volume
+    context.position = _position
+    context.timeout = _timeout
 
 availableCurrency: (currency) ->
     currency.amount * @context.currencyLimit
@@ -76,7 +73,7 @@ handle: (context, data)->
         debug "#{instrument.curr()} #{currency.amount} + #{instrument.asset()} #{asset.amount} = #{value}"
         debug "BUY #{volume} @ #{price} = #{volume * price}"
 
-        if volume > context.tradeMinimum and trading.buy instrument, 'market', volume
+        if volume > context.tradeMinimum and trading.buy instrument, 'market', volume, price, context.timeout
             context.position = 'LONG'
             context.price = price
             context.volume = volume
@@ -85,7 +82,7 @@ handle: (context, data)->
         debug "#{instrument.curr()} #{currency.amount} + #{instrument.asset()} #{asset.amount} = #{value}"
         debug "SELL #{volume} @ #{price} = #{volume * price}"
 
-        if volume > context.tradeMinimum and trading.sell instrument, 'market', volume
+        if volume > context.tradeMinimum and trading.sell instrument, 'market', volume, price, context.timeout
             context.position = 'SHORT'
             context.price = price
             context.volume = volume
