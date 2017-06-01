@@ -23,6 +23,7 @@ init: (context)->
     context.currencyLimit = _currencyLimit / 100
     context.tradeMinimum = _volume
     context.position = _position
+    context.timeout = _timeout
 
 availableCurrency: (currency) ->
     currency.amount * @context.currencyLimit
