@@ -2,10 +2,10 @@ params = require 'params'
 trading = require 'trading'
 talib = require 'talib'
 
-_position = params.addOptions 'Position', ['NONE', 'LONG', 'SHORT'], 'NONE'
+_position = params.addOptions 'Position', ['NONE', 'BUY', 'SELL'], 'NONE'
 _smoothing = params.add 'Smoothing', 2
-_assetLimit = params.add 'Asset Limit (%)', 50
-_currencyLimit = params.add 'Currency Limit (%)', 50
+_currencyLimit = params.add 'Currency Limit', 250
+_fee = params.add 'Order Fee (%)', 0.26
 _volume = params.add 'Order Minimum', 0.01
 _timeout = params.add 'Order Timeout', 60
 
@@ -19,14 +19,14 @@ init: (context)->
     context.donchianPeriod = 26
 
     context.emaPeriod = _smoothing
-    context.assetLimit = _assetLimit / 100
-    context.currencyLimit = _currencyLimit / 100
+    context.fee = _fee / 100
+    context.currencyLimit = _currencyLimit
     context.tradeMinimum = _volume
     context.position = _position
     context.timeout = _timeout
 
 availableCurrency: (currency) ->
-    currency.amount * @context.currencyLimit
+    @context.currencyLimit - (@context.currencyLimit * @context.fee)
     
 availableVolume: (currency, instrument) ->
     @availableCurrency(currency) / instrument.price
@@ -58,21 +58,23 @@ handle: (context, data)->
         dMax: dMax
         dMin: dMin
         
-    if price >= dMax and context.position != 'LONG'
+    if price >= dMax and context.position != 'BUY'
         volume = @availableVolume(currency, instrument)
         debug "#{instrument.curr()} #{currency.amount} + #{instrument.asset()} #{asset.amount} = #{value}"
         debug "BUY #{volume} @ #{price} = #{volume * price}"
 
         if volume > context.tradeMinimum and trading.buy instrument, 'market', volume, price, context.timeout
-            context.position = 'LONG'
+            context.position = 'BUY'
             context.price = price
             context.volume = volume
-    else if price <= dMin and context.position != 'SHORT'
-        volume = @availableAssets(asset)
+    else if price <= dMin and context.position == 'BUY'
         debug "#{instrument.curr()} #{currency.amount} + #{instrument.asset()} #{asset.amount} = #{value}"
-        debug "SELL #{volume} @ #{price} = #{volume * price}"
+        debug "SELL #{context.volume} @ #{price} = #{context.volume * price}"
 
-        if volume > context.tradeMinimum and trading.sell instrument, 'market', volume, price, context.timeout
-            context.position = 'SHORT'
+        if context.volume > context.tradeMinimum and trading.sell instrument, 'market', context.volume, price, context.timeout
+            context.currencyLimit = context.volume * price
+            context.currencyLimit = @availableCurrency(currency)
+            
+            context.position = 'SELL'
             context.price = price
             context.volume = volume
