@@ -2,12 +2,12 @@ params = require 'params'
 trading = require 'trading'
 talib = require 'talib'
 
-_position = params.addOptions 'Position', ['NONE', 'BUY', 'SELL'], 'NONE'
-_smoothing = params.add 'Smoothing', 2
 _currencyLimit = params.add 'Currency Limit', 250
+_volume = params.add 'Assets Bought', 0
 _fee = params.add 'Order Fee (%)', 0.26
-_volume = params.add 'Order Minimum', 0.01
+_minimumOrder = params.add 'Order Minimum', 0.01
 _timeout = params.add 'Order Timeout', 60
+_smoothing = params.add 'Smoothing', 2
 
 class Functions
     @donchianMax: (inReal, optInTimePeriod) ->
@@ -21,9 +21,12 @@ init: (context)->
     context.emaPeriod = _smoothing
     context.fee = _fee / 100
     context.currencyLimit = _currencyLimit
-    context.tradeMinimum = _volume
-    context.position = _position
+    context.tradeMinimum = _minimumOrder
     context.timeout = _timeout
+    
+    if _volume > 0
+        context.position = 'BUY'
+        context.volume = _volume
 
 availableCurrency: (currency) ->
     @context.currencyLimit - (@context.currencyLimit * @context.fee)
