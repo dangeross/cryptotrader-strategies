@@ -1,4 +1,4 @@
-datasources  = require 'datasources'
+datasources = require 'datasources'
 params = require 'params'
 trading = require 'trading'
 talib = require 'talib'
@@ -11,18 +11,19 @@ datasources.add 'kraken', 'eth_eur', '1h', 250
 datasources.add 'kraken', 'xmr_eur', '1h', 250
 
 # Params
-_limit = params.add 'Currency Limit', 250
-_volume = params.add 'Assets Bought', 0
+_currency = params.add 'Currency Limit', 250
+_limit = params.add 'Buy Limit (%)', 66
 _fee = params.add 'Order Fee (%)', 0.26
 _minimumOrder = params.add 'Order Minimum', 0.01
 _timeout = params.add 'Order Timeout', 60
+_type = params.addOptions 'Order Type', ['market', 'limit'], 'market'
 _smoothing = params.add 'Smoothing', 2
 
 # Constants      
 PAIR_STATES = 
   idle : 0
-  canBuy : 1
-  canSell : 2
+  canSell : 1
+  canBuy : 2
   bought: 3
 
 # Classes
@@ -33,99 +34,139 @@ class Functions
         _.min(_.slice(inReal, inReal.length - optInTimePeriod))
         
 class Portfolio
-    @constructor: (options) ->
+    constructor: (options) ->
         @ticks = 0
         @pairs = []
         @options = options
 
-    @add: (pair) ->
+    add: (pair) ->
+        primary = (@pairs.length == 0)
         @pairs.push(pair)
+        pair.setPrimary(primary)
         
-    @update: (instruments) ->
+    count: (state) ->
+        _.filter(@pairs, {state: state}).length
+        
+    update: (instruments, options) ->
         @ticks++  
-
+        
+        for pair in @pairs
+            instrument = datasources.get(pair.market, pair.name, pair.interval)
+            pair.update(instrument, options)
+            pair.sell(instrument, options)
+            
+        for pair in @pairs
+            instrument = datasources.get(pair.market, pair.name, pair.interval)
+            limit = options.currency / (@pairs.length - @count(PAIR_STATES.bought))
+            pair.buy(instrument, options, limit)
+            
 class Pair
-    @constructor: (market, name, interval, size = 100) ->
+    constructor: (market, name, interval, size = 100) ->
+        @ticks = 0
         @market = market
         @name = name
         @interval = interval
         @size = size
         @state = PAIR_STATES.idle
+        @primary = false
         
-    @update: () ->
+    setPrimary: (primary) ->
+        @primary = primary
         
-    @trade: () ->
-    
-    
+    update: (instrument, options) ->
+        @price = instrument.price
+
+        ema = talib.EMA
+            inReal: instrument.close
+            startIdx: 0
+            endIdx: instrument.close.length - 1
+            optInTimePeriod: options.emaPeriod
+            
+        @ema = _.last(ema)
+        @dMax = Functions.donchianMax(ema, options.donchianPeriod)
+        @dMin = Functions.donchianMin(ema, options.donchianPeriod)
         
+        if @state == PAIR_STATES.bought
+            @ticks++
+            debug "P/L: #{instrument.asset()} #{@profit(instrument)}% 24h: #{@profit(instrument, 24)}%"
+        
+        if @primary
+            plot
+                ema: @ema
+                dMax: @dMax
+                dMin: @dMin
+            
+        if instrument.price >= @dMax and @state != PAIR_STATES.bought
+            @state = PAIR_STATES.canBuy
+        else if instrument.price <= @dMin and @state == PAIR_STATES.bought
+            @state = PAIR_STATES.canSell
+        
+        if @state == PAIR_STATES.idle
+            debug "PC: #{@name} #{@percentChange(@dMax, @price)}% 24h: #{@profit(instrument, 24)}"
+            
+    buy: (instrument, options, limit) ->
+        if @state == PAIR_STATES.canBuy
+            ticker = trading.getTicker instrument
+            price = ticker.buy
+            volume = (limit / price) * (1 - options.fee)
+            
+            if volume >= options.tradeMinimum
+                debug "BUY #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
+            
+                if trading.buy(instrument, options.tradeType, volume, price, options.timeout)
+                    options.currency -= (price * volume) * (1 + options.fee)
+                    debug "Currency: #{options.currency}"
+                    @state = PAIR_STATES.bought
+                    @volume = volume
+                else 
+                    debug "BUY failed"
+                    @state = PAIR_STATES.idle
+            else
+                debug "BUY volume insufficient: #{volume} #{instrument.asset()}"
+                @state = PAIR_STATES.idle
+                
+    profit: (instrument, offset) ->
+        if @state == PAIR_STATES.bought or offset
+            @percentChange(instrument.close[instrument.close.length - (offset ?= @ticks)], instrument.price)
+        else 0.00
+        
+    percentChange: (oldPrice, newPrice) ->
+        period = ((newPrice - oldPrice) / oldPrice) * 100
+        period.toFixed(2)
+
+    sell: (instrument, options) ->
+        if @state == PAIR_STATES.canSell
+            ticker = trading.getTicker instrument
+            price = ticker.sell
+            volume = @volume
+            
+            debug "SELL #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
+
+            if trading.sell(instrument, options.tradeType, volume, price, options.timeout)
+                options.currency += (price * volume) * (1 - options.fee)
+                debug "Currency: #{options.currency}"
+                @state = PAIR_STATES.idle
+                @ticks = 0
+                @volume = null
+            else
+                #debug "SELL failed"
 
 init: (context) ->
-    context.options
+    debug "Init"
+    context.options = 
         donchianPeriod: 26
         emaPeriod: _smoothing
+        limit: _limit / 100
         fee: _fee / 100
-        limit: _limit
+        currency: _currency
         tradeMinimum: _minimumOrder
+        tradeType: _type
         timeout: _timeout
     
     context.portfolio = new Portfolio(context.options)
     context.portfolio.add(new Pair('kraken', 'xbt_eur', '1h', 250))
     context.portfolio.add(new Pair('kraken', 'eth_eur', '1h', 250))
     context.portfolio.add(new Pair('kraken', 'xmr_eur', '1h', 250))
-
-availableCurrency: (currency) ->
-    @context.currencyLimit - (@context.currencyLimit * @context.fee)
-    
-availableVolume: (currency, instrument) ->
-    @availableCurrency(currency) / instrument.price
-    
-availableAssets: (asset) ->
-    asset.amount * @context.assetLimit
     
 handle: (context, data) ->
-    context.portfolio.update(data.instruments)
-    
-    
-    instrument  = data.instruments[0]
-    price = instrument.price
-    
-    currency = @portfolio.positions[instrument.curr()]
-    asset = @portfolio.positions[instrument.asset()]
-    value = (asset.amount * price) + currency.amount
-    
-    ema = talib.EMA
-        inReal: instrument.close
-        startIdx: 0
-        endIdx: instrument.close.length - 1
-        optInTimePeriod: context.emaPeriod
-
-    dMax = Functions.donchianMax(ema, context.donchianPeriod)
-    dMin = Functions.donchianMin(ema, context.donchianPeriod)
-    
-    #debug "#{dMax} #{price} #{dMin}"
-
-    plot
-        ema: _.last(ema)
-        dMax: dMax
-        dMin: dMin
-        
-    if price >= dMax and context.position != 'BUY'
-        volume = @availableVolume(currency, instrument)
-        debug "#{instrument.curr()} #{currency.amount} + #{instrument.asset()} #{asset.amount} = #{value}"
-        debug "BUY #{volume} @ #{price} = #{volume * price}"
-
-        if volume > context.tradeMinimum and trading.buy instrument, 'market', volume, price, context.timeout
-            context.position = 'BUY'
-            context.price = price
-            context.volume = volume
-    else if price <= dMin and context.position == 'BUY'
-        debug "#{instrument.curr()} #{currency.amount} + #{instrument.asset()} #{asset.amount} = #{value}"
-        debug "SELL #{context.volume} @ #{price} = #{context.volume * price}"
-
-        if context.volume > context.tradeMinimum and trading.sell instrument, 'market', context.volume, price, context.timeout
-            context.currencyLimit = context.volume * price
-            context.currencyLimit = @availableCurrency(currency)
-            
-            context.position = 'SELL'
-            context.price = price
-            context.volume = volume
+    context.portfolio.update(data.instruments, context.options)
