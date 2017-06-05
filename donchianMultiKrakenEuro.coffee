@@ -12,7 +12,6 @@ datasources.add 'kraken', 'xmr_eur', '1h', 250
 
 # Params
 _currency = params.add 'Currency Limit', 250
-_limit = params.add 'Buy Limit (%)', 66
 _fee = params.add 'Order Fee (%)', 0.26
 _minimumOrder = params.add 'Order Minimum', 0.01
 _timeout = params.add 'Order Timeout', 60
@@ -102,7 +101,7 @@ class Pair
             @state = PAIR_STATES.canSell
         
         if @state == PAIR_STATES.idle
-            debug "PC: #{@name} #{@percentChange(@dMax, @price)}% 24h: #{@profit(instrument, 24)}"
+            debug "PC: #{@name} #{@percentChange(@dMax, @price)}% 24h: #{@profit(instrument, 24)}%"
             
     buy: (instrument, options, limit) ->
         if @state == PAIR_STATES.canBuy
@@ -111,16 +110,21 @@ class Pair
             volume = (limit / price) * (1 - options.fee)
             
             if volume >= options.tradeMinimum
-                debug "BUY #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
-            
-                if trading.buy(instrument, options.tradeType, volume, price, options.timeout)
-                    options.currency -= (price * volume) * (1 + options.fee)
-                    debug "Currency: #{options.currency}"
-                    @state = PAIR_STATES.bought
-                    @volume = volume
-                else 
-                    debug "BUY failed"
+                try
+                    debug "BUY #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
+                    
+                    if trading.buy(instrument, options.tradeType, volume, price, options.timeout)
+                        options.currency -= (price * volume) * (1 + options.fee)
+                        debug "Currency: #{options.currency}"
+                        @state = PAIR_STATES.bought
+                        @volume = volume
+                    else 
+                        debug "BUY failed"
+                        @state = PAIR_STATES.idle
+                catch error
                     @state = PAIR_STATES.idle
+                    debug "ERROR #{error}"
+                    sendEmail "BUY FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}. #{error}"
             else
                 debug "BUY volume insufficient: #{volume} #{instrument.asset()}"
                 @state = PAIR_STATES.idle
@@ -142,21 +146,24 @@ class Pair
             
             debug "SELL #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
 
-            if trading.sell(instrument, options.tradeType, volume, price, options.timeout)
-                options.currency += (price * volume) * (1 - options.fee)
-                debug "Currency: #{options.currency}"
-                @state = PAIR_STATES.idle
-                @ticks = 0
-                @volume = null
-            else
-                #debug "SELL failed"
+            try
+                if trading.sell(instrument, options.tradeType, volume, price, options.timeout)
+                    options.currency += (price * volume) * (1 - options.fee)
+                    debug "Currency: #{options.currency}"
+                    @state = PAIR_STATES.idle
+                    @ticks = 0
+                    @volume = null
+                else
+                    #debug "SELL failed"
+            catch error
+                debug "ERROR #{error}"
+                sendEmail "SELL FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}. #{error}"
 
 init: (context) ->
     debug "Init"
     context.options = 
         donchianPeriod: 26
         emaPeriod: _smoothing
-        limit: _limit / 100
         fee: _fee / 100
         currency: _currency
         tradeMinimum: _minimumOrder
