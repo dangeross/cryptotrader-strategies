@@ -10,7 +10,7 @@ talib = require 'talib'
 datasources.add 'kraken', 'xrp_xbt', '1h', 250
 datasources.add 'kraken', 'rep_xbt', '1h', 250
 datasources.add 'kraken', 'ltc_xbt', '1h', 250
-datasources.add 'kraken', 'gno_xbt', '1h', 250
+datasources.add 'kraken', 'icn_xbt', '1h', 250
 
 # Params
 _currency = params.add 'Currency Limit', 250
@@ -89,7 +89,7 @@ class Pair
         
         if @state == PAIR_STATES.bought
             @ticks++
-            debug "P/L: #{instrument.asset()} #{@profit(instrument)}% 24h: #{@profit(instrument, 24)}%"
+            debug "P/L:  #{instrument.asset()} #{@profit(instrument)}% 4h: #{@profit(instrument, 4)}% 24h: #{@profit(instrument, 24)}%"
         
         if @primary
             plot
@@ -102,8 +102,8 @@ class Pair
         else if instrument.price <= @dMin and @state == PAIR_STATES.bought
             @state = PAIR_STATES.canSell
         
-        if @state == PAIR_STATES.idle
-            debug "PC: #{@name} #{@percentChange(@dMax, @price)}% 24h: #{@profit(instrument, 24)}%"
+        if @state != PAIR_STATES.bought
+            debug "DMX: #{instrument.asset()} #{@percentChange(@dMax, @price)}% 4h: #{@profit(instrument, 4)}% 24h: #{@profit(instrument, 24)}%"
             
     buy: (instrument, options, limit) ->
         if @state == PAIR_STATES.canBuy
@@ -117,15 +117,16 @@ class Pair
                     
                     if trading.buy(instrument, options.tradeType, volume, price, options.timeout)
                         options.currency -= (price * volume) * (1 + options.fee)
-                        debug "Currency: #{options.currency}"
+                        debug "CUR: #{options.currency}"
                         @state = PAIR_STATES.bought
                         @volume = volume
                     else 
-                        debug "BUY failed"
                         @state = PAIR_STATES.idle
+                        debug "BUY FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
+                        sendEmail "BUY FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
                 catch error
                     @state = PAIR_STATES.idle
-                    debug "ERROR #{error}"
+                    debug "BUY FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}. #{error}"
                     sendEmail "BUY FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}. #{error}"
             else
                 debug "BUY volume insufficient: #{volume} #{instrument.asset()}"
@@ -151,19 +152,20 @@ class Pair
             try
                 if trading.sell(instrument, options.tradeType, volume, price, options.timeout)
                     options.currency += (price * volume) * (1 - options.fee)
-                    debug "Currency: #{options.currency}"
+                    debug "CUR: #{options.currency}"
                     @state = PAIR_STATES.idle
                     @ticks = 0
                     @volume = null
                 else
-                    #debug "SELL failed"
+                    debug "SELL FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
+                    sendEmail "SELL FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
             catch error
-                debug "ERROR #{error}"
+                debug "SELL FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}. #{error}"
                 sendEmail "SELL FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}. #{error}"
 
-init: (context) ->
-    debug "Init"
-    context.options = 
+init: ->
+    debug "*********** Instance Initialised *************"    
+    @context.options = 
         donchianPeriod: 26
         emaPeriod: _smoothing
         fee: _fee / 100
@@ -172,12 +174,21 @@ init: (context) ->
         tradeType: _type
         timeout: _timeout
     
-    context.portfolio = new Portfolio(context.options)
-    context.portfolio.add(new Pair('kraken', 'eth_xbt', '1h', 250))
-    context.portfolio.add(new Pair('kraken', 'xrp_xbt', '1h', 250))
-    context.portfolio.add(new Pair('kraken', 'rep_xbt', '1h', 250))
-    context.portfolio.add(new Pair('kraken', 'ltc_xbt', '1h', 250))
-    context.portfolio.add(new Pair('kraken', 'gno_xbt', '1h', 250))
+handle: ->
+    debug "**********************************************"
+        
+    if !@context.portfolio
+        @context.portfolio = new Portfolio(@context.options)
+        @context.portfolio.add(new Pair('kraken', 'eth_xbt', '1h', 250))
+        @context.portfolio.add(new Pair('kraken', 'xrp_xbt', '1h', 250))
+        @context.portfolio.add(new Pair('kraken', 'rep_xbt', '1h', 250))
+        @context.portfolio.add(new Pair('kraken', 'ltc_xbt', '1h', 250))
+        @context.portfolio.add(new Pair('kraken', 'icn_xbt', '1h', 250))
     
-handle: (context, data) ->
-    context.portfolio.update(data.instruments, context.options)
+    @context.portfolio.update(@data.instruments, @context.options)
+    
+onStop: ->
+    debug "************* Instance Stopped ***************"    
+    
+onRestart: ->
+    debug "************ Instance Restarted **************" 
