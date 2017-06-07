@@ -48,6 +48,25 @@ class Portfolio
     count: (state) ->
         _.filter(@pairs, {state: state}).length
         
+    restore: (pairs) ->
+        debug "************ Portfolio Restored **************"    
+
+        for pairData in pairs
+            pair = new Pair(pairData.market, pairData.name, pairData.interval, pairData.size)
+            pair.restore(pairData.state, pairData.price, pairData.volume)
+            @add(pair)
+            
+    save: (storage) ->
+        storage.pairs = []
+        
+        for pair in @pairs
+            storage.pairs.push(pair.save())
+            
+    stop: (instruments, options) ->
+        for pair in @pairs
+            instrument = datasources.get(pair.market, pair.name, pair.interval)
+            pair.stop(instrument, options)
+        
     update: (instruments, options) ->
         @ticks++  
         
@@ -60,7 +79,7 @@ class Portfolio
             instrument = datasources.get(pair.market, pair.name, pair.interval)
             limit = options.currency / (@pairs.length - @count(PAIR_STATES.bought))
             pair.buy(instrument, options, limit)
-            
+
 class Pair
     constructor: (market, name, interval, size = 100) ->
         @ticks = 0
@@ -73,6 +92,27 @@ class Pair
         
     setPrimary: (primary) ->
         @primary = primary
+             
+    restore: (state, price, volume) ->
+        debug "*********** Pair #{@name} Restored *************"    
+
+        @state = state
+        @price = price
+        @volume = volume
+        
+    save: () ->
+        market: @market
+        name: @name
+        interval: @interval
+        size: @size
+        state: @state
+        price: @price
+        volume: @volume
+        
+    stop: (instrument, options) ->
+        if @state == PAIR_STATES.bought
+            @state = PAIR_STATES.canSell
+            @sell(instrument, options)
         
     update: (instrument, options) ->
         price = instrument.price
@@ -176,7 +216,10 @@ init: ->
     
 handle: ->
     debug "**********************************************"
-        
+    
+    if !@storage.params
+        @storage.params = @context.options
+    
     if !@context.portfolio
         @context.portfolio = new Portfolio(@context.options)
         @context.portfolio.add(new Pair('kraken', 'xbt_eur', '1h', 250))
@@ -184,9 +227,27 @@ handle: ->
         @context.portfolio.add(new Pair('kraken', 'xmr_eur', '1h', 250))
     
     @context.portfolio.update(@data.instruments, @context.options)
+    @context.portfolio.save(@storage)
+    @storage.options = @context.options
     
 onStop: ->
-    debug "************* Instance Stopped ***************"    
-    
+    debug "************* Instance Stopped ***************"
+    @context.portfolio.stop(@data.instruments, @context.options)
+
 onRestart: ->
-    debug "************ Instance Restarted **************"  
+    debug "************ Instance Restarted **************"
+
+    if @storage.pairs
+        @context.portfolio = new Portfolio(@context.options)
+        @context.portfolio.restore(@storage.pairs)
+
+    if @storage.options
+        debug "************* Options Restored ***************"
+        _.each @context.options, (value, key) ->
+            if key == 'currency' and @storage.params.currency != value
+                @storage.options.currency = value - (@storage.params.currency - @storage.options.currency)
+            else if @storage.params[key] != value
+                @storage.options[key] = value
+            debug "PARAM[#{key}]: #{@storage.options[key]}"
+        
+        @context.options = @storage.params = @storage.options
