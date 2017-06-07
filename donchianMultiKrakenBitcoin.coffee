@@ -33,6 +33,8 @@ class Functions
         _.max(_.slice(inReal, inReal.length - optInTimePeriod))
     @donchianMin: (inReal, optInTimePeriod) ->
         _.min(_.slice(inReal, inReal.length - optInTimePeriod))
+    @instrumentValue: (instrument, indicator, offset = 0) ->
+        instrument[indicator][instrument[indicator].length - 1 - offset]
         
 class Portfolio
     constructor: (options) ->
@@ -75,7 +77,7 @@ class Pair
         @primary = primary
         
     update: (instrument, options) ->
-        @price = instrument.price
+        price = instrument.price
 
         ema = talib.EMA
             inReal: instrument.close
@@ -89,7 +91,7 @@ class Pair
         
         if @state == PAIR_STATES.bought
             @ticks++
-            debug "P/L:  #{instrument.asset()} #{@profit(instrument)}% 4h: #{@profit(instrument, 4)}% 24h: #{@profit(instrument, 24)}%"
+            debug "P/L:  #{instrument.asset()} #{@percentChange(@price, price)}% 4h: #{@profit(instrument, 4)}% 24h: #{@profit(instrument, 24)}%"
         
         if @primary
             plot
@@ -103,7 +105,7 @@ class Pair
             @state = PAIR_STATES.canSell
         
         if @state != PAIR_STATES.bought
-            debug "DMX: #{instrument.asset()} #{@percentChange(@dMax, @price)}% 4h: #{@profit(instrument, 4)}% 24h: #{@profit(instrument, 24)}%"
+            debug "DMX: #{instrument.asset()} #{@percentChange(@dMax, price)}% 4h: #{@profit(instrument, 4)}% 24h: #{@profit(instrument, 24)}%"
             
     buy: (instrument, options, limit) ->
         if @state == PAIR_STATES.canBuy
@@ -120,6 +122,7 @@ class Pair
                         debug "CUR: #{options.currency}"
                         @state = PAIR_STATES.bought
                         @volume = volume
+                        @price = price
                     else 
                         @state = PAIR_STATES.idle
                         debug "BUY FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
@@ -133,11 +136,7 @@ class Pair
                 @state = PAIR_STATES.idle
                 
     profit: (instrument, offset) ->
-        if @state == PAIR_STATES.bought
-            @percentChange(@price, instrument.price)
-        else if offset
-            @percentChange(instrument.close[instrument.close.length - offset], instrument.price)
-        else 0.00
+        @percentChange(Functions.instrumentValue(instrument, 'close', offset), instrument.price)
         
     percentChange: (oldPrice, newPrice) ->
         period = ((newPrice - oldPrice) / oldPrice) * 100
@@ -158,6 +157,7 @@ class Pair
                     @state = PAIR_STATES.idle
                     @ticks = 0
                     @volume = null
+                    @price = null
                 else
                     debug "SELL FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
                     sendEmail "SELL FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
@@ -175,7 +175,7 @@ init: ->
         tradeMinimum: _minimumOrder
         tradeType: _type
         timeout: _timeout
-    
+
 handle: ->
     debug "**********************************************"
         
