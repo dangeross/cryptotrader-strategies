@@ -133,8 +133,10 @@ class Pair
                 @state = PAIR_STATES.idle
                 
     profit: (instrument, offset) ->
-        if @state == PAIR_STATES.bought or offset
-            @percentChange(instrument.close[instrument.close.length - (offset ?= @ticks)], instrument.price)
+        if @state == PAIR_STATES.bought
+            @percentChange(@price, instrument.price)
+        else if offset
+            @percentChange(instrument.close[instrument.close.length - offset], instrument.price)
         else 0.00
         
     percentChange: (oldPrice, newPrice) ->
