@@ -17,8 +17,9 @@ _currency = params.add 'Currency Limit', 250
 _fee = params.add 'Order Fee (%)', 0.26
 _minimumOrder = params.add 'Order Minimum', 0.01
 _timeout = params.add 'Order Timeout', 60
-_type = params.addOptions 'Order Type', ['market', 'limit'], 'market'
+_period = params.add 'Enter/Exit Period', 26
 _smoothing = params.add 'Smoothing', 2
+_sellOnStop = params.add 'Sell On Stop', true
 
 # Constants      
 PAIR_STATES = 
@@ -55,7 +56,7 @@ class Portfolio
 
         for pairData in pairs
             pair = new Pair(pairData.market, pairData.name, pairData.interval, pairData.size)
-            pair.restore(pairData.state, pairData.price, pairData.volume)
+            pair.restore(pairData.profit, pairData.state, pairData.price, pairData.volume)
             @add(pair)
             
     save: (storage) ->
@@ -81,10 +82,16 @@ class Portfolio
             instrument = datasources.get(pair.market, pair.name, pair.interval)
             limit = options.currency / (@pairs.length - @count(PAIR_STATES.bought))
             pair.buy(instrument, options, limit)
+            
+        if @ticks % 24 == 0
+            for pair in @pairs
+                instrument = datasources.get(pair.market, pair.name, pair.interval)
+                pair.report(instrument, options)
 
 class Pair
     constructor: (market, name, interval, size = 100) ->
         @ticks = 0
+        @profit = 0
         @market = market
         @name = name
         @interval = interval
@@ -95,9 +102,10 @@ class Pair
     setPrimary: (primary) ->
         @primary = primary
              
-    restore: (state, price, volume) ->
+    restore: (profit = 0, state, price, volume) ->
         debug "*********** Pair #{@name} Restored *************"    
 
+        @profit = profit
         @state = state
         @price = price
         @volume = volume
@@ -107,6 +115,7 @@ class Pair
         name: @name
         interval: @interval
         size: @size
+        profit: @profit
         state: @state
         price: @price
         volume: @volume
@@ -115,7 +124,13 @@ class Pair
         if @state == PAIR_STATES.bought
             @state = PAIR_STATES.canSell
             @sell(instrument, options)
-        
+            
+    report: (instrument, options) ->
+        if @profit > 0
+            info "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(5)} #{instrument.curr()}"
+        else
+            warn "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(5)} #{instrument.curr()}"
+
     update: (instrument, options) ->
         price = instrument.price
 
@@ -131,7 +146,12 @@ class Pair
         
         if @state == PAIR_STATES.bought
             @ticks++
-            debug "P/L:  #{instrument.asset()} #{@percentChange(@price, price)}% 4h: #{@profit(instrument, 4)}% 24h: #{@profit(instrument, 24)}%"
+            profitLoss = ((price * @volume) * (1 - options.fee)) - ((@price * @volume) * (1 + options.fee))
+            
+            if profitLoss > 0
+                info "#{instrument.asset().toUpperCase()}: #{profitLoss.toFixed(5)} #{instrument.curr()} #{@percentChange(@price, price)}%, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
+            else
+                warn "#{instrument.asset().toUpperCase()}: #{profitLoss.toFixed(5)} #{instrument.curr()} #{@percentChange(@price, price)}%, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
         
         if @primary
             plot
@@ -145,7 +165,7 @@ class Pair
             @state = PAIR_STATES.canSell
         
         if @state != PAIR_STATES.bought
-            debug "DMX: #{instrument.asset()} #{@percentChange(@dMax, price)}% 4h: #{@profit(instrument, 4)}% 24h: #{@profit(instrument, 24)}%"
+            debug "#{instrument.asset().toUpperCase()}: #{@percentChange(@dMax, price)}% dM, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
             
     buy: (instrument, options, limit) ->
         if @state == PAIR_STATES.canBuy
@@ -157,7 +177,7 @@ class Pair
                 try
                     debug "BUY #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
                     
-                    if trading.buy(instrument, options.tradeType, volume, price, options.timeout)
+                    if trading.buy(instrument, 'market', volume, price, options.timeout)
                         options.currency -= (price * volume) * (1 + options.fee)
                         debug "CUR: #{options.currency}"
                         @state = PAIR_STATES.bought
@@ -175,7 +195,7 @@ class Pair
                 debug "BUY volume insufficient: #{volume} #{instrument.asset()}"
                 @state = PAIR_STATES.idle
                 
-    profit: (instrument, offset) ->
+    instrumentChange: (instrument, offset) ->
         @percentChange(Functions.instrumentValue(instrument, 'close', offset), instrument.price)
         
     percentChange: (oldPrice, newPrice) ->
@@ -191,9 +211,10 @@ class Pair
             debug "SELL #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
 
             try
-                if trading.sell(instrument, options.tradeType, volume, price, options.timeout)
+                if trading.sell(instrument, 'market', volume, price, options.timeout)
                     options.currency += (price * volume) * (1 - options.fee)
                     debug "CUR: #{options.currency}"
+                    @profit += ((price * @volume) * (1 - options.fee)) - ((@price * @volume) * (1 + options.fee))
                     @state = PAIR_STATES.idle
                     @ticks = 0
                     @volume = null
@@ -208,14 +229,14 @@ class Pair
 init: ->
     debug "*********** Instance Initialised *************"    
     @context.options = 
-        donchianPeriod: 26
+        donchianPeriod: _period
         emaPeriod: _smoothing
         fee: _fee / 100
         currency: _currency
         tradeMinimum: _minimumOrder
-        tradeType: _type
         timeout: _timeout
-    
+        sellOnStop: _sellOnStop
+   
 handle: ->
     debug "**********************************************"
     
@@ -236,7 +257,9 @@ handle: ->
     
 onStop: ->
     debug "************* Instance Stopped ***************"
-    @context.portfolio.stop(@data.instruments, @context.options)
+
+    if @context.options.sellOnStop
+        @context.portfolio.stop(@data.instruments, @context.options)
 
 onRestart: ->
     debug "************ Instance Restarted **************"
@@ -254,4 +277,4 @@ onRestart: ->
                 @storage.options[key] = value
             debug "PARAM[#{key}]: #{@storage.options[key]}"
         
-        @context.options = @storage.params = @storage.options
+        @context.options = @storage.params = @storage.options 
