@@ -4,11 +4,13 @@ trading = require 'trading'
 talib = require 'talib'
 
 # primary datasource
-# datasources.add 'kraken', 'xbt_eur', '1h'
+# datasources.add 'kraken', 'eth_xbt', '1h'
 
 # secondary datasources
-datasources.add 'kraken', 'eth_eur', '1h', 250
-datasources.add 'kraken', 'xmr_eur', '1h', 250
+datasources.add 'kraken', 'xrp_xbt', '1h', 250
+datasources.add 'kraken', 'rep_xbt', '1h', 250
+datasources.add 'kraken', 'ltc_xbt', '1h', 250
+datasources.add 'kraken', 'mln_xbt', '1h', 250
 
 # Params
 _currency = params.add 'Currency Limit', 250
@@ -234,7 +236,7 @@ init: ->
         tradeMinimum: _minimumOrder
         timeout: _timeout
         sellOnStop: _sellOnStop
-    
+   
 handle: ->
     debug "**********************************************"
     
@@ -243,9 +245,11 @@ handle: ->
     
     if !@context.portfolio
         @context.portfolio = new Portfolio(@context.options)
-        @context.portfolio.add(new Pair('kraken', 'xbt_eur', '1h', 250))
-        @context.portfolio.add(new Pair('kraken', 'eth_eur', '1h', 250))
-        @context.portfolio.add(new Pair('kraken', 'xmr_eur', '1h', 250))
+        @context.portfolio.add(new Pair('kraken', 'eth_xbt', '1h', 250))
+        @context.portfolio.add(new Pair('kraken', 'xrp_xbt', '1h', 250))
+        @context.portfolio.add(new Pair('kraken', 'rep_xbt', '1h', 250))
+        @context.portfolio.add(new Pair('kraken', 'ltc_xbt', '1h', 250))
+        @context.portfolio.add(new Pair('kraken', 'mln_xbt', '1h', 250))
     
     @context.portfolio.update(@data.instruments, @context.options)
     @context.portfolio.save(@storage)
@@ -273,4 +277,4 @@ onRestart: ->
                 @storage.options[key] = value
             debug "PARAM[#{key}]: #{@storage.options[key]}"
         
-        @context.options = @storage.params = @storage.options
+        @context.options = @storage.params = @storage.options 
