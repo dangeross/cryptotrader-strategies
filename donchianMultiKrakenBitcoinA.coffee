@@ -241,7 +241,7 @@ handle: ->
     debug "**********************************************"
     
     if !@storage.params
-        @storage.params = @context.options
+        @storage.params = _.clone(@context.options)
     
     if !@context.portfolio
         @context.portfolio = new Portfolio(@context.options)
