@@ -27,13 +27,108 @@ PAIR_STATES =
   bought: 3
 
 # Classes
-class Functions
+class Indicators
     @donchianMax: (inReal, optInTimePeriod) ->
         _.max(_.slice(inReal, inReal.length - optInTimePeriod))
     @donchianMin: (inReal, optInTimePeriod) ->
         _.min(_.slice(inReal, inReal.length - optInTimePeriod))
     @instrumentValue: (instrument, indicator, offset = 0) ->
         instrument[indicator][instrument[indicator].length - 1 - offset]
+        
+class Helpers
+    @round: (number, roundTo = 8) ->
+        Number(Math.round(number + 'e' + roundTo) + 'e-' + roundTo);
+
+class IceTrade
+    @buy: (instrument, options, limit, roundTo) ->
+        debug "START BUY #{limit} #{instrument.asset()}"
+        attempts = 0
+        limit *= (1 - options.fee)
+        maxOrderVolume = (limit / instrument.price) / 10
+        result = 
+            gross: 0
+            net: 0
+            price: 0
+            volume: 0
+        while true
+            attempts++
+            ticker = trading.getTicker instrument
+            price = ticker.buy * 1.0001
+            volume = Math.max((0.9 + 0.2 * Math.random()) * maxOrderVolume, options.tradeMinimum * (1.0 + 0.2 * Math.random()))
+            try
+                if result.net + (volume * price) >= limit
+                    price = ticker.buy
+                    volume = (limit - result.net) / price
+                    debug "FINAL BUY #{attempts}: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
+                        
+                    if trading.buy(instrument, 'limit', volume, price, options.timeout)
+                        result.gross += (price * volume)
+                        result.net = result.gross * (1 + options.fee)
+                        result.volume += volume
+                        result.price = result.gross / result.volume
+                        break
+                    else
+                        debug "BUY FAILED"
+                debug "BUY #{attempts} #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
+                if trading.buy(instrument, 'limit', volume, price, options.timeout)
+                    result.gross += (price * volume)
+                    result.net = result.gross * (1 + options.fee)
+                    result.volume += volume
+                    result.price = result.gross / result.volume
+                else
+                    debug "BUY FAILED"
+            catch error
+                warn "BUY FAILED: #{error}"
+                break
+            if attempts > 20
+                break
+        debug "ICE COMPLETED #{result.gross} (#{result.net}) / #{result.volume} = #{result.price}"
+        result
+    @sell: (instrument, options, limit, roundTo) ->
+        debug "START SELL #{limit}  #{instrument.asset()}"
+        attempts = 0
+        maxOrderVolume = limit / 10
+        result = 
+            gross: 0
+            net: 0
+            price: 0
+            volume: 0
+        while true
+            attempts++
+            ticker = trading.getTicker instrument
+            price = ticker.sell * 0.9999
+            volume = Math.max((0.9 + 0.2 * Math.random()) * maxOrderVolume, options.tradeMinimum * (1.0 + 0.1 * Math.random()))
+            if limit - (result.volume + volume) <= options.tradeMinimum
+                volume = limit - result.volume
+            try
+                if result.volume + volume >= limit
+                    price = ticker.sell
+                    volume = limit - result.volume
+                    debug "FINAL SELL #{attempts}: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
+                      
+                    if trading.sell(instrument, 'limit', volume, price, options.timeout)
+                        result.gross += (price * volume)
+                        result.net = result.gross * (1 - options.fee)
+                        result.volume += volume
+                        result.price = result.gross / result.volume
+                        break
+                    else
+                        debug "SELL FAILED"
+                debug "SELL #{attempts} #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
+                if trading.sell(instrument, 'limit', volume, price, options.timeout)
+                    result.gross += (price * volume)
+                    result.net = result.gross * (1 - options.fee)
+                    result.volume += volume
+                    result.price = result.gross / result.volume
+                else
+                    debug "SELL FAILED"
+            catch error
+                warn "SELL FAILED: #{error}"
+                break
+            if attempts > 20
+                break
+        debug "ICE COMPLETED #{result.gross} (#{result.net}) / #{result.volume} = #{result.price}"
+        result
         
 class Portfolio
     constructor: (options) ->
@@ -63,23 +158,23 @@ class Portfolio
         for pair in @pairs
             storage.pairs.push(pair.save())
             
-    stop: (instruments, options) ->
+    stop: (portfolios, instruments, options) ->
         for pair in @pairs
             instrument = datasources.get(pair.market, pair.name, pair.interval)
-            pair.stop(instrument, options)
+            pair.stop(portfolios, instrument, options)
         
-    update: (instruments, options) ->
+    update: (portfolios, instruments, options) ->
         @ticks++  
         
         for pair in @pairs
             instrument = datasources.get(pair.market, pair.name, pair.interval)
             pair.update(instrument, options)
-            pair.sell(instrument, options)
+            pair.sell(portfolios, instrument, options)
             
         for pair in @pairs
             instrument = datasources.get(pair.market, pair.name, pair.interval)
             limit = options.currency / (@pairs.length - @count(PAIR_STATES.bought))
-            pair.buy(instrument, options, limit)
+            pair.buy(portfolios, instrument, options, limit)
             
         if @ticks % 24 == 0
             for pair in @pairs
@@ -87,13 +182,14 @@ class Portfolio
                 pair.report(instrument, options)
 
 class Pair
-    constructor: (market, name, interval, size = 100) ->
+    constructor: (market, name, interval, size = 100, roundTo = 8) ->
         @ticks = 0
         @profit = 0
         @market = market
         @name = name
         @interval = interval
         @size = size
+        @roundTo = roundTo
         @state = PAIR_STATES.idle
         @primary = false
         
@@ -113,15 +209,23 @@ class Pair
         name: @name
         interval: @interval
         size: @size
+        roundTo: @roundTo
         profit: @profit
         state: @state
         price: @price
         volume: @volume
         
-    stop: (instrument, options) ->
+    stop: (positions, instrument, options) ->
         if @state == PAIR_STATES.bought
             @state = PAIR_STATES.canSell
-            @sell(instrument, options)
+            @sell(positions, instrument, options)
+                            
+    instrumentChange: (instrument, offset) ->
+        @percentChange(Indicators.instrumentValue(instrument, 'close', offset), instrument.price)
+        
+    percentChange: (oldPrice, newPrice) ->
+        period = ((newPrice - oldPrice) / oldPrice) * 100
+        period.toFixed(2)
             
     report: (instrument, options) ->
         if @profit > 0
@@ -139,17 +243,17 @@ class Pair
             optInTimePeriod: options.emaPeriod
             
         @ema = _.last(ema)
-        @dMax = Functions.donchianMax(ema, options.donchianPeriod)
-        @dMin = Functions.donchianMin(ema, options.donchianPeriod)
+        @dMax = Indicators.donchianMax(ema, options.donchianPeriod)
+        @dMin = Indicators.donchianMin(ema, options.donchianPeriod)
         
         if @state == PAIR_STATES.bought
             @ticks++
             profitLoss = ((price * @volume) * (1 - options.fee)) - ((@price * @volume) * (1 + options.fee))
             
-            if profitLoss > 0
-                info "#{instrument.asset().toUpperCase()}: #{profitLoss.toFixed(5)} #{instrument.curr()} #{@percentChange(@price, price)}%, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
-            else
-                warn "#{instrument.asset().toUpperCase()}: #{profitLoss.toFixed(5)} #{instrument.curr()} #{@percentChange(@price, price)}%, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
+            #if profitLoss > 0
+            #    info "#{instrument.asset().toUpperCase()}: #{profitLoss.toFixed(5)} #{instrument.curr()} #{@percentChange(@price, price)}%, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
+            #else
+            #    warn "#{instrument.asset().toUpperCase()}: #{profitLoss.toFixed(5)} #{instrument.curr()} #{@percentChange(@price, price)}%, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
         
         if @primary
             plot
@@ -162,67 +266,38 @@ class Pair
         else if instrument.price <= @dMin and @state == PAIR_STATES.bought
             @state = PAIR_STATES.canSell
         
-        if @state != PAIR_STATES.bought
-            debug "#{instrument.asset().toUpperCase()}: #{@percentChange(@dMax, price)}% dM, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
+        #if @state != PAIR_STATES.bought
+        #    debug "#{instrument.asset().toUpperCase()}: #{@percentChange(@dMax, price)}% dM, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
             
-    buy: (instrument, options, limit) ->
+    buy: (portfolios, instrument, options, limit) ->
         if @state == PAIR_STATES.canBuy
-            ticker = trading.getTicker instrument
-            price = ticker.buy
-            volume = (limit / price) * (1 - options.fee)
-            
-            if volume >= options.tradeMinimum
-                try
-                    debug "BUY #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
-                    
-                    if trading.buy(instrument, 'market', volume, price, options.timeout)
-                        options.currency -= (price * volume) * (1 + options.fee)
-                        debug "CUR: #{options.currency}"
-                        @state = PAIR_STATES.bought
-                        @volume = volume
-                        @price = price
-                    else 
-                        @state = PAIR_STATES.idle
-                        debug "BUY FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
-                        sendEmail "BUY FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
-                catch error
-                    @state = PAIR_STATES.idle
-                    debug "BUY FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}. #{error}"
-                    sendEmail "BUY FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}. #{error}"
+            portfolio = portfolios[@market]
+            debug "START POSITION #{portfolio.positions[instrument.asset()].amount} #{instrument.asset()} : #{portfolio.positions[instrument.curr()].amount} #{instrument.curr()}"
+            trade = IceTrade.buy(instrument, options, limit, @roundTo)
+            if trade.volume > 0
+                options.currency -= trade.net
+                debug "CUR: #{options.currency}"
+                @state = PAIR_STATES.bought
+                @volume = trade.volume
+                @price = trade.price
             else
-                debug "BUY volume insufficient: #{volume} #{instrument.asset()}"
                 @state = PAIR_STATES.idle
-                
-    instrumentChange: (instrument, offset) ->
-        @percentChange(Functions.instrumentValue(instrument, 'close', offset), instrument.price)
-        
-    percentChange: (oldPrice, newPrice) ->
-        period = ((newPrice - oldPrice) / oldPrice) * 100
-        period.toFixed(2)
+            debug "END POSITION #{portfolio.positions[instrument.asset()].amount} #{instrument.asset()} : #{portfolio.positions[instrument.curr()].amount} #{instrument.curr()}"
 
-    sell: (instrument, options) ->
+    sell: (portfolios, instrument, options) ->
         if @state == PAIR_STATES.canSell
-            ticker = trading.getTicker instrument
-            price = ticker.sell
-            volume = @volume
-            
-            debug "SELL #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
-
-            try
-                if trading.sell(instrument, 'market', volume, price, options.timeout)
-                    options.currency += (price * volume) * (1 - options.fee)
-                    debug "CUR: #{options.currency}"
-                    @profit += ((price * @volume) * (1 - options.fee)) - ((@price * @volume) * (1 + options.fee))
-                    @state = PAIR_STATES.idle
-                    @ticks = 0
-                    @volume = null
-                    @price = null
-                else
-                    debug "SELL FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
-                    sendEmail "SELL FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
-            catch error
-                debug "SELL FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}. #{error}"
-                sendEmail "SELL FAILED: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}. #{error}"
+            portfolio = portfolios[@market]
+            debug "START POSITION #{portfolio.positions[instrument.asset()].amount} #{instrument.asset()} : #{portfolio.positions[instrument.curr()].amount} #{instrument.curr()}"
+            trade = IceTrade.sell(instrument, options, @volume, @roundTo)
+            if trade.net > 0
+                options.currency += trade.net
+                debug "CUR: #{options.currency}"
+                @profit += trade.net - ((@price * @volume) * (1 + options.fee))
+                @state = PAIR_STATES.idle
+                @ticks = 0
+                @volume = null
+                @price = null
+            debug "END POSITION #{portfolio.positions[instrument.asset()].amount} #{instrument.asset()} : #{portfolio.positions[instrument.curr()].amount} #{instrument.curr()}"
 
 init: ->
     debug "*********** Instance Initialised *************"    
@@ -243,19 +318,18 @@ handle: ->
     
     if !@context.portfolio
         @context.portfolio = new Portfolio(@context.options)
-        @context.portfolio.add(new Pair('kraken', 'xbt_eur', '1h', 250))
+        @context.portfolio.add(new Pair('kraken', 'xbt_eur', '1h', 250, 5))
         @context.portfolio.add(new Pair('kraken', 'eth_eur', '1h', 250))
         @context.portfolio.add(new Pair('kraken', 'xmr_eur', '1h', 250))
     
-    @context.portfolio.update(@data.instruments, @context.options)
+    @context.portfolio.update(@portfolios, @data.instruments, @context.options)
     @context.portfolio.save(@storage)
     @storage.options = @context.options
     
 onStop: ->
     debug "************* Instance Stopped ***************"
-
     if @context.options.sellOnStop
-        @context.portfolio.stop(@data.instruments, @context.options)
+        @context.portfolio.stop(@portfolios, @data.instruments, @context.options)
 
 onRestart: ->
     debug "************ Instance Restarted **************"
