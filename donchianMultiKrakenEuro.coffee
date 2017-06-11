@@ -38,12 +38,16 @@ class Indicators
 class Helpers
     @round: (number, roundTo = 8) ->
         Number(Math.round(number + 'e' + roundTo) + 'e-' + roundTo);
+    @floatAddition: (numberA, numberB, presision = 16) ->
+        pow = Math.pow(10, presision)
+        ((numberA * pow) + (numberB * pow)) / pow
 
 class IceTrade
-    @buy: (instrument, options, limit, roundTo) ->
-        debug "START BUY #{limit} #{instrument.asset()}"
-        attempts = 0
+    @buy: (instrument, currency, options, limit, roundTo) ->
+        debug "START BUY #{limit} #{instrument.curr()}"
         limit *= (1 - options.fee)
+        attempts = 0
+        finalAttempt = false
         maxOrderVolume = (limit / instrument.price) / 10
         result = 
             gross: 0
@@ -54,17 +58,23 @@ class IceTrade
             attempts++
             ticker = trading.getTicker instrument
             price = ticker.buy * 1.0001
-            volume = Math.max((0.9 + 0.2 * Math.random()) * maxOrderVolume, options.tradeMinimum * (1.0 + 0.2 * Math.random()))
+            volume = options.tradeMinimum + ((0.8 + 0.2 * Math.random()) * maxOrderVolume)
+            if result.net + (volume * price) >= limit or (limit - result.net - (volume * price * (1 + options.fee))) / price < options.tradeMinimum
+                price = ticker.buy
+                volume = (limit - result.net) / price
+                finalAttempt = true
+            if result.net + (volume * price) >= currency.amount
+                price = ticker.buy
+                volume = currency.amount / price
+                finalAttempt = true
             try
-                if result.net + (volume * price) >= limit
-                    price = ticker.buy
-                    volume = (limit - result.net) / price
+                if finalAttempt
                     debug "FINAL BUY #{attempts}: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
                         
                     if trading.buy(instrument, 'limit', volume, price, options.timeout)
                         result.gross += (price * volume)
                         result.net = result.gross * (1 + options.fee)
-                        result.volume += volume
+                        result.volume = Helpers.floatAddition(result.volume, volume)
                         result.price = result.gross / result.volume
                         break
                     else
@@ -73,7 +83,7 @@ class IceTrade
                 if trading.buy(instrument, 'limit', volume, price, options.timeout)
                     result.gross += (price * volume)
                     result.net = result.gross * (1 + options.fee)
-                    result.volume += volume
+                    result.volume = Helpers.floatAddition(result.volume, volume)
                     result.price = result.gross / result.volume
                 else
                     debug "BUY FAILED"
@@ -84,9 +94,10 @@ class IceTrade
                 break
         debug "ICE COMPLETED #{result.gross} (#{result.net}) / #{result.volume} = #{result.price}"
         result
-    @sell: (instrument, options, limit, roundTo) ->
+    @sell: (instrument, asset, options, limit, roundTo) ->
         debug "START SELL #{limit}  #{instrument.asset()}"
         attempts = 0
+        finalAttempt = false
         maxOrderVolume = limit / 10
         result = 
             gross: 0
@@ -98,18 +109,21 @@ class IceTrade
             ticker = trading.getTicker instrument
             price = ticker.sell * 0.9999
             volume = Math.max((0.9 + 0.2 * Math.random()) * maxOrderVolume, options.tradeMinimum * (1.0 + 0.1 * Math.random()))
-            if limit - (result.volume + volume) <= options.tradeMinimum
+            if result.volume + volume >= limit or limit - (result.volume + volume) <= options.tradeMinimum
                 volume = limit - result.volume
+                finalAttempt = true
+            if volume > asset.amount
+                volume = asset.amount
+                finalAttempt = true
             try
-                if result.volume + volume >= limit
+                if finalAttempt
                     price = ticker.sell
-                    volume = limit - result.volume
-                    debug "FINAL SELL #{attempts}: #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
+                    debug "FINAL SELL #{attempts}: #{result.volume} #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
                       
                     if trading.sell(instrument, 'limit', volume, price, options.timeout)
                         result.gross += (price * volume)
                         result.net = result.gross * (1 - options.fee)
-                        result.volume += volume
+                        result.volume = Helpers.floatAddition(result.volume, volume)
                         result.price = result.gross / result.volume
                         break
                     else
@@ -118,7 +132,7 @@ class IceTrade
                 if trading.sell(instrument, 'limit', volume, price, options.timeout)
                     result.gross += (price * volume)
                     result.net = result.gross * (1 - options.fee)
-                    result.volume += volume
+                    result.volume = Helpers.floatAddition(result.volume, volume)
                     result.price = result.gross / result.volume
                 else
                     debug "SELL FAILED"
@@ -271,9 +285,10 @@ class Pair
             
     buy: (portfolios, instrument, options, limit) ->
         if @state == PAIR_STATES.canBuy
+            currency = portfolios[@market].positions[instrument.curr()]
             portfolio = portfolios[@market]
             debug "START POSITION #{portfolio.positions[instrument.asset()].amount} #{instrument.asset()} : #{portfolio.positions[instrument.curr()].amount} #{instrument.curr()}"
-            trade = IceTrade.buy(instrument, options, limit, @roundTo)
+            trade = IceTrade.buy(instrument, currency, options, limit, @roundTo)
             if trade.volume > 0
                 options.currency -= trade.net
                 debug "CUR: #{options.currency}"
@@ -286,9 +301,10 @@ class Pair
 
     sell: (portfolios, instrument, options) ->
         if @state == PAIR_STATES.canSell
+            asset = portfolios[@market].positions[instrument.asset()]
             portfolio = portfolios[@market]
             debug "START POSITION #{portfolio.positions[instrument.asset()].amount} #{instrument.asset()} : #{portfolio.positions[instrument.curr()].amount} #{instrument.curr()}"
-            trade = IceTrade.sell(instrument, options, @volume, @roundTo)
+            trade = IceTrade.sell(instrument, asset, options, @volume, @roundTo)
             if trade.net > 0
                 options.currency += trade.net
                 debug "CUR: #{options.currency}"
