@@ -290,7 +290,10 @@ class Pair
             debug "START POSITION #{portfolio.positions[instrument.asset()].amount} #{instrument.asset()} : #{portfolio.positions[instrument.curr()].amount} #{instrument.curr()}"
             trade = IceTrade.buy(instrument, currency, options, limit, @roundTo)
             if trade.volume > 0
-                options.currency -= trade.net
+                if options.currency - trade.net < 0 
+                    options.currency = 0 
+                else 
+                    options.currency -= trade.net
                 debug "CUR: #{options.currency}"
                 @state = PAIR_STATES.bought
                 @volume = trade.volume
