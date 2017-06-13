@@ -265,10 +265,10 @@ class Pair
             @ticks++
             profitLoss = ((price * @volume) * (1 - options.fee)) - ((@price * @volume) * (1 + options.fee))
             
-            #if profitLoss > 0
-            #    info "#{instrument.asset().toUpperCase()}: #{profitLoss.toFixed(5)} #{instrument.curr()} #{@percentChange(@price, price)}%, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
-            #else
-            #    warn "#{instrument.asset().toUpperCase()}: #{profitLoss.toFixed(5)} #{instrument.curr()} #{@percentChange(@price, price)}%, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
+            if profitLoss > 0
+                info "#{instrument.asset().toUpperCase()}: #{profitLoss.toFixed(5)} #{instrument.curr()} #{@percentChange(@price, price)}%, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
+            else
+                warn "#{instrument.asset().toUpperCase()}: #{profitLoss.toFixed(5)} #{instrument.curr()} #{@percentChange(@price, price)}%, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
         
         if @primary
             plot
@@ -281,8 +281,8 @@ class Pair
         else if instrument.price <= @dMin and @state == PAIR_STATES.bought
             @state = PAIR_STATES.canSell
         
-        #if @state != PAIR_STATES.bought
-        #    debug "#{instrument.asset().toUpperCase()}: #{@percentChange(@dMax, price)}% dM, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
+        if @state != PAIR_STATES.bought
+            debug "#{instrument.asset().toUpperCase()}: #{@percentChange(@dMax, price)}% dM, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
             
     buy: (portfolios, instrument, options, limit) ->
         if @state == PAIR_STATES.canBuy
