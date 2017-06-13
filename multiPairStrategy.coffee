@@ -15,6 +15,8 @@ _currency = params.add 'Currency Limit', 250
 _fee = params.add 'Order Fee (%)', 0.26
 _minimumOrder = params.add 'Order Minimum', 0.01
 _timeout = params.add 'Order Timeout', 60
+_period = params.add 'Enter/Exit Period', 26
+_smoothing = params.add 'Smoothing', 2
 _sellOnStop = params.add 'Sell On Stop', true
 
 # Constants      
@@ -26,6 +28,10 @@ PAIR_STATES =
 
 # Classes
 class Indicators
+    @donchianMax: (inReal, optInTimePeriod) ->
+        _.max(_.slice(inReal, inReal.length - optInTimePeriod))
+    @donchianMin: (inReal, optInTimePeriod) ->
+        _.min(_.slice(inReal, inReal.length - optInTimePeriod))
     @instrumentValue: (instrument, indicator, offset = 0) ->
         instrument[indicator][instrument[indicator].length - 1 - offset]
         
@@ -245,7 +251,15 @@ class Pair
         price = instrument.price
 
         # Analyse instrument
-        
+        ema = talib.EMA
+            inReal: instrument.close
+            startIdx: 0
+            endIdx: instrument.close.length - 1
+            optInTimePeriod: options.emaPeriod
+            
+        @ema = _.last(ema)
+        @dMax = Indicators.donchianMax(ema, options.donchianPeriod)
+        @dMin = Indicators.donchianMin(ema, options.donchianPeriod)
         
         if @state == PAIR_STATES.bought
             @ticks++
@@ -259,6 +273,10 @@ class Pair
         # Plot graph
             
         # Test buy/sell conditions
+        if instrument.price >= @dMax and @state != PAIR_STATES.bought
+            @state = PAIR_STATES.canBuy
+        else if instrument.price <= @dMin and @state == PAIR_STATES.bought
+            @state = PAIR_STATES.canSell
         
         if @state != PAIR_STATES.bought
             debug "#{instrument.asset().toUpperCase()}: #{@percentChange(@dMax, price)}% dM, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
@@ -301,6 +319,8 @@ class Pair
 init: ->
     debug "*********** Instance Initialised *************"    
     @context.options = 
+        donchianPeriod: _period
+        emaPeriod: _smoothing
         fee: _fee / 100
         currency: _currency
         tradeMinimum: _minimumOrder
