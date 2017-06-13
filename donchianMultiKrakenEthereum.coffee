@@ -7,6 +7,7 @@ talib = require 'talib'
 # datasources.add 'kraken', 'rep_eth', '1h'
 
 # secondary datasources
+datasources.add 'kraken', 'etc_eth', '1h', 250
 datasources.add 'kraken', 'mln_eth', '1h', 250
 
 # Params
@@ -243,6 +244,7 @@ handle: ->
     if !@context.portfolio
         @context.portfolio = new Portfolio(@context.options)
         @context.portfolio.add(new Pair('kraken', 'rep_eth', '1h', 250))
+        @context.portfolio.add(new Pair('kraken', 'etc_eth', '1h', 250))
         @context.portfolio.add(new Pair('kraken', 'mln_eth', '1h', 250))
     
     @context.portfolio.update(@data.instruments, @context.options)
