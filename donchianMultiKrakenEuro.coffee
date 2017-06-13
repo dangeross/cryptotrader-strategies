@@ -8,6 +8,7 @@ talib = require 'talib'
 
 # secondary datasources
 datasources.add 'kraken', 'eth_eur', '1h', 250
+datasources.add 'kraken', 'etc_eur', '1h', 250
 datasources.add 'kraken', 'xmr_eur', '1h', 250
 
 # Params
@@ -245,6 +246,7 @@ handle: ->
         @context.portfolio = new Portfolio(@context.options)
         @context.portfolio.add(new Pair('kraken', 'xbt_eur', '1h', 250))
         @context.portfolio.add(new Pair('kraken', 'eth_eur', '1h', 250))
+        @context.portfolio.add(new Pair('kraken', 'etc_eur', '1h', 250))
         @context.portfolio.add(new Pair('kraken', 'xmr_eur', '1h', 250))
     
     @context.portfolio.update(@data.instruments, @context.options)
