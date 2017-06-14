@@ -272,6 +272,11 @@ class Pair
                 warn "#{instrument.asset().toUpperCase()}: #{profitLoss.toFixed(5)} #{instrument.curr()} #{@percentChange(@price, price)}%, #{@instrumentChange(instrument, 4)}% 4h, #{@instrumentChange(instrument, 24)}% 24h"
         
         # Plot graph
+        if @primary
+            plot
+                ema: @ema
+                dMax: @dMax
+                dMin: @dMin
             
         # Test buy/sell conditions
         if instrument.price >= @dMax and @state != PAIR_STATES.bought
