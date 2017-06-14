@@ -354,7 +354,7 @@ handle: ->
     
 onStop: ->
     debug "************* Instance Stopped ***************"
-    if @context.options.sellOnStop
+    if @context.portfolio and @context.options.sellOnStop
         @context.portfolio.stop(@portfolios, @data.instruments, @context.options)
 
 onRestart: ->
