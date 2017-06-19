@@ -29,6 +29,18 @@ PAIR_STATES =
 
 # Classes
 class Functions
+    save: (storage) ->
+        storage.pairs = []
+        
+        for pair in @pairs
+            storage.pairs.push(pair.save())
+            
+    stop: (instruments, options) ->
+        for pair in @pairs
+            instrument = datasources.get(pair.market, pair.name, pair.interval)
+            pair.stop(instrument, options)
+        
+    update: (instruments, options) ->
     @donchianMax: (inReal, optInTimePeriod) ->
         _.max(_.slice(inReal, inReal.length - optInTimePeriod))
     @donchianMin: (inReal, optInTimePeriod) ->
@@ -58,18 +70,6 @@ class Portfolio
             pair.restore(pairData.profit, pairData.state, pairData.price, pairData.volume)
             @add(pair)
             
-    save: (storage) ->
-        storage.pairs = []
-        
-        for pair in @pairs
-            storage.pairs.push(pair.save())
-            
-    stop: (instruments, options) ->
-        for pair in @pairs
-            instrument = datasources.get(pair.market, pair.name, pair.interval)
-            pair.stop(instrument, options)
-        
-    update: (instruments, options) ->
         @ticks++  
         
         for pair in @pairs
@@ -256,7 +256,7 @@ handle: ->
 onStop: ->
     debug "************* Instance Stopped ***************"
 
-    if @context.options.sellOnStop
+    if @context.portfolio and @context.options.sellOnStop
         @context.portfolio.stop(@data.instruments, @context.options)
 
 onRestart: ->
@@ -275,4 +275,5 @@ onRestart: ->
                 @storage.options[key] = value
             debug "PARAM[#{key}]: #{@storage.options[key]}"
         
-        @context.options = @storage.params = @storage.options  
+        @storage.params = _.clone(@context.options)
+        @context.options = _.clone(@storage.options)
