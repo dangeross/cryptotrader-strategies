@@ -59,7 +59,7 @@ class Portfolio
             @add(pair)
             
     save: (storage) ->
-        storage.pairs a= []
+        storage.pairs = []
         
         for pair in @pairs
             storage.pairs.push(pair.save())
