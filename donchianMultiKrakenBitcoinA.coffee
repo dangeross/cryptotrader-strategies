@@ -258,7 +258,7 @@ handle: ->
 onStop: ->
     debug "************* Instance Stopped ***************"
 
-    if @context.options.sellOnStop
+    if @context.portfolio and @context.options.sellOnStop
         @context.portfolio.stop(@data.instruments, @context.options)
 
 onRestart: ->
@@ -277,4 +277,5 @@ onRestart: ->
                 @storage.options[key] = value
             debug "PARAM[#{key}]: #{@storage.options[key]}"
         
-        @context.options = @storage.params = @storage.options 
+        @storage.params = _.clone(@context.options)
+        @context.options = _.clone(@storage.options)
