@@ -8,8 +8,8 @@ talib = require 'talib'
 
 # secondary datasources
 datasources.add 'kraken', 'etc_eth', '1h', 250
-datasources.add 'kraken', 'gno_eth', '1h', 250
-datasources.add 'kraken', 'mln_eth', '1h', 250
+#datasources.add 'kraken', 'gno_eth', '1h', 250
+#datasources.add 'kraken', 'mln_eth', '1h', 250
 
 # Params
 _currency = params.add 'Currency Limit', 250
@@ -246,8 +246,8 @@ handle: ->
         @context.portfolio = new Portfolio(@context.options)
         @context.portfolio.add(new Pair('kraken', 'rep_eth', '1h', 250))
         @context.portfolio.add(new Pair('kraken', 'etc_eth', '1h', 250))
-        @context.portfolio.add(new Pair('kraken', 'gno_eth', '1h', 250))
-        @context.portfolio.add(new Pair('kraken', 'mln_eth', '1h', 250))
+        #@context.portfolio.add(new Pair('kraken', 'gno_eth', '1h', 250))
+        #@context.portfolio.add(new Pair('kraken', 'mln_eth', '1h', 250))
     
     @context.portfolio.update(@data.instruments, @context.options)
     @context.portfolio.save(@storage)
