@@ -4,19 +4,20 @@ trading = require 'trading'
 talib = require 'talib'
 
 # primary datasource
-# datasources.add 'kraken', 'xbt_eur', 5
+# datasources.add 'kraken', 'xbt_eur', 1
 
 # secondary datasources
-#datasources.add 'kraken', 'eth_eur', 5, 250
-#datasources.add 'kraken', 'etc_eur', 5, 250
-#datasources.add 'kraken', 'xmr_eur', 5, 250
+datasources.add 'kraken', 'eth_eur', 1, 250
+datasources.add 'kraken', 'etc_eur', 1, 250
+datasources.add 'kraken', 'xmr_eur', 1, 250
 
 # Params
-_currency = params.add 'Currency Limit', 500
-_fee = params.add 'Order Fee (%)', 0.26
-_limit = params.add 'Order Limit', 100
+_currency = params.add 'Currency Limit', 1000
+_fee = params.add 'Order Fee (%)', 0.24
+_maxOrders = params.add 'Max Orders/Pair', 5
+_takeProfit = params.add 'Take Profit (%)', 2.5
 _timeout = params.add 'Order Timeout', 60
-_sellOnStop = params.add 'Sell On Stop', true
+_sellOnStop = params.add 'Sell On Stop', false
 
 # Classes
 class Helpers
@@ -39,6 +40,8 @@ class Helpers
     @floatAddition: (numberA, numberB, presision = 16) ->
         pow = Math.pow(10, presision)
         ((numberA * pow) + (numberB * pow)) / pow
+    @percentChange: (oldPrice, newPrice) ->
+        ((newPrice - oldPrice) / oldPrice) * 100
 
 class Indicators
     @macd: (inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, lag = 0) ->
@@ -76,7 +79,7 @@ class Portfolio
 
         for pairData in pairs
             pair = new Pair(pairData.market, pairData.name, pairData.interval, pairData.size)
-            pair.restore(pairData.profit, pairData.trades)
+            pair.restore(pairData.count, pairData.profit, pairData.trades)
             @add(pair)
 
     save: (storage) ->
@@ -96,25 +99,28 @@ class Portfolio
         for pair in @pairs
             portfolio = portfolios[pair.market]
             pair.update(portfolio, options)
-            if @ticks % 48 == 0
+            if @ticks % 240 == 0
                 pair.report(portfolio, options)
 
 class Pair
     constructor: (market, name, interval, size = 100) ->
         @profit = 0
+        @count = 0
         @market = market
         @name = name
         @interval = interval
         @size = size
         @trades = []
 
-    restore: (profit = 0, trades) ->
+    restore: (count = 0, profit = 0, trades ) ->
         debug "*********** Pair #{@name} Restored *************"
+        @count = count
         @profit = profit
         @trades = _.map trades, (trade) ->
-            new Trade(trade.volume, trade.price)
+            new Trade(trade.id, trade.volume, trade.price)
 
     save: () ->
+        count: @count
         market: @market
         name: @name
         interval: @interval
@@ -144,30 +150,23 @@ class Pair
         rsiOld = Helpers.nth(rsi, -2)
         rsiNew = Helpers.nth(rsi, -1)
 
-        plot
-            rsi: rsiNew
+        #plot
+        #    rsi: rsiNew
 
-        if rsiOld <= 30 and rsiNew > 30
-            # First buy
-            count = Helpers.countLows(rsi, 30)
-            for i in [0...count]
-                @buy(portfolio, instrument, options)
+        if rsiOld <= 30 and rsiNew > 30 #and @trades.length < options.maxOrders
+            # Buy
+            @buy(portfolio, instrument, options)
         else if rsiOld >= 70 and rsiNew < 70
-            # Last sell
-            count = Helpers.countHighs(rsi, 70)
-            #_.each(@trades, (trade) ->
-            for i in [0...count]
-                @sell(portfolio, instrument, options)
-            #, @)
-        #else if instrument.volume > 0 and @trades.length > 0 and macdNew.macd > macdOld.macd and _.last(instrument.close) < _.last(instrument.open)
-        #    # Buy dip
-        #    @buy(portfolio, instrument, options)
-        #else if instrument.volume > 0 and @trades.length > 1 and macdNew.macd < macdOld.macd and _.last(instrument.close) < _.last(instrument.open)
-        #    # Sell dip
-        #    @sell(portfolio, instrument, options)
+            # Sell
+            _.each(
+                _.filter(@trades, (trade) -> 
+                    trade.takeProfit(portfolio, instrument, options))
+                , (trade) -> @sell(portfolio, instrument, options, trade)
+            , @)
 
     buy: (portfolio, instrument, options) ->
-        limit = options.tradeLimit * (1 - options.fee)
+        tradeLimit = options.tradeLimit #(options.currency * 0.05) #options.tradeLimit
+        limit = tradeLimit * (1 - options.fee)
         currency = portfolio.positions[instrument.base()]
         options.currency = if options.currency < currency.amount then currency.amount else options.currency
 
@@ -175,60 +174,74 @@ class Pair
             currency = portfolio.positions[instrument.base()]
             ticker = trading.getTicker instrument
             price = Helpers.round(ticker.buy * 1.0001, 4)
-            volume = Helpers.round(options.tradeLimit / price, 6)
+            volume = Helpers.round(tradeLimit / price, 6)
 
             debug "BUY #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
 
             try
                 if trading.buy(instrument, 'limit', volume, price, options.timeout)
                     options.currency -= (price * volume) * (1 + options.fee)
-                    @trades.push(new Trade(volume, price))
+                    @trades.push(new Trade(@count++, volume, price))
                 else
                     debug "BUY FAILED"
                     plotMark
                         fail: price
             catch err
+                debug "CUR: #{options.currency}"
                 debug "ERR: #{err}: #{portfolio.positions[instrument.base()].amount}"
 
-    sell: (portfolio, instrument, options) ->
-        trade = _.first(@trades)
+    sell: (portfolio, instrument, options, trade) ->
+        asset = portfolio.positions[instrument.asset()]
+        ticker = trading.getTicker instrument
+        price = Helpers.round(ticker.sell * 0.9999, 4)
+        volume = if asset.amount < trade.volume then asset.amount else trade.volume
 
-        if trade
-            asset = portfolio.positions[instrument.asset()]
-            ticker = trading.getTicker instrument
-            price = Helpers.round(ticker.sell * 0.9999, 4)
-            volume = if asset.amount < trade.volume then asset.amount else trade.volume
+        debug "SELL #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
 
-            debug "SELL #{volume} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{volume * price}"
-
-            try
-                if trading.sell(instrument, 'limit', volume, price, options.timeout)
-                    options.currency += (price * volume) * (1 - options.fee)
-                    @profit += ((price * volume) * (1 - options.fee)) - ((trade.price * volume) * (1 + options.fee))
-                    debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
-                    @trades.shift()
-                else
-                    debug "SELL FAILED: #{}"
-                    plotMark
-                        fail: price
-            catch err
-                debug "ERR: #{err}: #{asset.amount}"
+        try
+            if trading.sell(instrument, 'limit', volume, price, options.timeout)
+                options.currency += (price * volume) * (1 - options.fee)
+                @profit += ((price * volume) * (1 - options.fee)) - ((trade.price * volume) * (1 + options.fee))
+                debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
+                _.remove(@trades, (item) -> item.id == trade.id)
+            else
+                debug "SELL FAILED: #{}"
+                plotMark
+                    fail: price
+        catch err
+            debug "ERR: #{err}: #{asset.amount}"
 
 class Trade
-    constructor: (volume, price) ->
+    constructor: (id, volume, price) ->
+        @id = id
         @volume = volume
         @price = price
 
     serialize: () ->
+        id: @id
         volume: @volume
         price: @price
+        
+    takeProfit: (portfolio, instrument, options) ->
+        ticker = trading.getTicker instrument
+        price = Helpers.round(ticker.sell * 0.9999, 4)
+        percentChange = Helpers.percentChange(@price, price)
+        
+        if percentChange >= options.takeProfit
+            info "#{instrument.asset()}@#{@price}: #{percentChange.toFixed(2)}%"
+        #else
+        #    debug "#{instrument.asset()}@#{@price}: #{percentChange.toFixed(2)}%"
+        
+        percentChange >= options.takeProfit
 
 init: ->
     debug "*********** Instance Initialised *************"
     @context.options =
         fee: _fee / 100
         currency: _currency
-        tradeLimit: _limit
+        maxOrders: _maxOrders
+        tradeLimit: _currency / _maxOrders / 4
+        takeProfit: _takeProfit
         timeout: _timeout
         sellOnStop: _sellOnStop
 
@@ -238,15 +251,17 @@ init: ->
             secondary: true
 
 handle: ->
+    #debug "**********************************************"
+    
     if !@storage.params
         @storage.params = _.clone(@context.options)
 
     if !@context.portfolio
         @context.portfolio = new Portfolio(@context.options)
-        @context.portfolio.add(new Pair('kraken', 'xbt_eur', 5, 250))
-        #@context.portfolio.add(new Pair('kraken', 'eth_eur', 5, 250))
-        #@context.portfolio.add(new Pair('kraken', 'etc_eur', 5, 250))
-        #@context.portfolio.add(new Pair('kraken', 'xmr_eur', 5, 250))
+        @context.portfolio.add(new Pair('kraken', 'xbt_eur', 1, 250))
+        @context.portfolio.add(new Pair('kraken', 'eth_eur', 1, 250))
+        @context.portfolio.add(new Pair('kraken', 'etc_eur', 1, 250))
+        @context.portfolio.add(new Pair('kraken', 'xmr_eur', 1, 250))
 
     @context.portfolio.update(@portfolios, @data.instruments, @context.options)
     @context.portfolio.save(@storage)
