@@ -4,17 +4,17 @@ trading = require 'trading'
 talib = require 'talib'
 
 # primary datasource
-# datasources.add 'kraken', 'xbt_eur', 1
+# datasources.add 'kraken', 'eth_xbt', 5
 
 # secondary datasources
-datasources.add 'kraken', 'eth_eur', 1, 250
-datasources.add 'kraken', 'etc_eur', 1, 250
-datasources.add 'kraken', 'ltc_eur', 1, 250
-datasources.add 'kraken', 'xmr_eur', 1, 250
+datasources.add 'kraken', 'xrp_xbt', 5, 250
+datasources.add 'kraken', 'rep_xbt', 5, 250
+datasources.add 'kraken', 'ltc_xbt', 5, 250
+datasources.add 'kraken', 'mln_xbt', 5, 250
 
 # Params
-_currency = params.add 'Currency Limit', 1000
-_decimalPlaces = params.add 'Decimal Places', 4
+_currency = params.add 'Currency Limit', 0.1
+_decimalPlaces = params.add 'Decimal Places', 6
 _fee = params.add 'Order Fee (%)', 0.26
 _maxOrders = params.add 'Max Orders/Pair', 5
 _takeProfit = params.add 'Take Profit (%)', 2.5
@@ -299,11 +299,11 @@ handle: ->
 
     if !@context.portfolio
         @context.portfolio = new Portfolio(@context.options)
-        @context.portfolio.add(new Pair('kraken', 'xbt_eur', 1, 250))
-        @context.portfolio.add(new Pair('kraken', 'eth_eur', 1, 250))
-        @context.portfolio.add(new Pair('kraken', 'etc_eur', 1, 250))
-        @context.portfolio.add(new Pair('kraken', 'ltc_eur', 1, 250))
-        @context.portfolio.add(new Pair('kraken', 'xmr_eur', 1, 250))
+        @context.portfolio.add(new Pair('kraken', 'eth_xbt', 5, 250))
+        @context.portfolio.add(new Pair('kraken', 'xrp_xbt', 5, 250))
+        @context.portfolio.add(new Pair('kraken', 'rep_xbt', 5, 250))
+        @context.portfolio.add(new Pair('kraken', 'ltc_xbt', 5, 250))
+        @context.portfolio.add(new Pair('kraken', 'mln_xbt', 5, 250))
 
     @context.portfolio.update(@portfolios, @data.instruments, @context.options)
     @context.portfolio.save(@storage)
