@@ -81,12 +81,12 @@ class Portfolio
             pair.confirmOrders(portfolio, options)
             pair.update(portfolio, options)
 
-            #if @ticks % 240 == 0
-            #    pair.report(portfolio, options)
-        #debug "***** RSI: #{_.map(@pairs, (pair) ->
-        #    instrument = datasources.get(pair.market, pair.name, pair.interval)
-        #    "#{instrument.asset()} #{pair.rsi.toFixed(2)}"
-        #).join(', ')}"
+            if @ticks % 240 == 0
+                pair.report(portfolio, options)
+        debug "***** RSI: #{_.map(@pairs, (pair) ->
+            instrument = datasources.get(pair.market, pair.name, pair.interval)
+            "#{instrument.asset()} #{pair.rsi.toFixed(2)}"
+        ).join(', ')}"
 
 class Pair
     constructor: (market, name, interval, size = 100) ->
