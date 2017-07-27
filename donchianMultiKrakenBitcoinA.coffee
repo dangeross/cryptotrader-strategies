@@ -10,7 +10,7 @@ talib = require 'talib'
 datasources.add 'kraken', 'xrp_xbt', '1h', 250
 datasources.add 'kraken', 'rep_xbt', '1h', 250
 datasources.add 'kraken', 'ltc_xbt', '1h', 250
-datasources.add 'kraken', 'mln_xbt', '1h', 250
+#datasources.add 'kraken', 'mln_xbt', '1h', 250
 
 # Params
 _currency = params.add 'Currency Limit', 250
@@ -249,7 +249,7 @@ handle: ->
         @context.portfolio.add(new Pair('kraken', 'xrp_xbt', '1h', 250))
         @context.portfolio.add(new Pair('kraken', 'rep_xbt', '1h', 250))
         @context.portfolio.add(new Pair('kraken', 'ltc_xbt', '1h', 250))
-        @context.portfolio.add(new Pair('kraken', 'mln_xbt', '1h', 250))
+        #@context.portfolio.add(new Pair('kraken', 'mln_xbt', '1h', 250))
     
     @context.portfolio.update(@data.instruments, @context.options)
     @context.portfolio.save(@storage)
