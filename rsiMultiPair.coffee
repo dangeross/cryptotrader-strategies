@@ -135,17 +135,22 @@ class Pair
     confirmOrders: (portfolio, options) ->
         @trades = _.reject(@trades, (trade) ->
             if trade.status == TradeStatus.BUY and trade.buy
-                order = trading.getOrder(trade.buy.orderId)
-                debug "CHECK BUY ORDER: #{JSON.stringify(_.pick(order, ['id', 'side', 'amount', 'price', 'active', 'cancelled', 'filled']), null, '\t')}"
+                now = new Date().getTime()
+                order = trading.getOrder(trade.buy.id)
+                debug "CHECK BUY ORDER: #{trade.buy.id} #{JSON.stringify(_.pick(order, ['id', 'side', 'amount', 'price', 'active', 'cancelled', 'filled']), null, '\t')}"
                 if not order or order.filled
                     trade.status = TradeStatus.FILLED
                     options.currency -= (trade.buy.price * trade.buy.amount) * (1 + options.fee)
                     debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
                 else if order.cancelled
                     return true
+                else if trade.buy.at < (now - 900000)
+                    debug "CANCEL ORDER: #{trade.buy.at} #{now}"
+                    trading.cancelOrder(order)
+                    return true
             else if trade.status == TradeStatus.SELL and trade.sell
-                order = trading.getOrder(trade.sell.orderId)
-                debug "CHECK SELL ORDER: #{JSON.stringify(_.pick(order, ['id', 'side', 'amount', 'price', 'active', 'cancelled', 'filled']), null, '\t')}"
+                order = trading.getOrder(trade.sell.id)
+                debug "CHECK SELL ORDER: #{trade.sell.id} #{JSON.stringify(_.pick(order, ['id', 'side', 'amount', 'price', 'active', 'cancelled', 'filled']), null, '\t')}"
                 if not order or order.filled
                     options.currency += (trade.sell.price * trade.sell.amount) * (1 - options.fee)
                     @profit += ((trade.sell.price * trade.sell.amount) * (1 - options.fee)) - ((trade.buy.price * trade.buy.amount) * (1 + options.fee))
@@ -222,31 +227,36 @@ class Pair
 
     sell: (portfolio, instrument, options, trade) ->
         asset = portfolio.positions[instrument.asset()]
-        ticker = trading.getTicker instrument
-        price = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
         amount = if asset.amount < trade.buy.amount then asset.amount else trade.buy.amount
 
-        debug "SELL #{amount} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{amount * price}"
+        if amount > 0
+            ticker = trading.getTicker instrument
+            price = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
 
-        try
-            order = trading.addOrder
-                instrument: instrument
-                side: 'sell'
-                type: 'limit'
-                amount: amount
-                price: price
+            debug "SELL #{amount} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{amount * price}"
 
-            trade.sellOrder(_.pick(order, ['id', 'side', 'amount', 'price', 'active', 'cancelled', 'filled']))
-            debug "ORDER: #{JSON.stringify(trade.sell, null, '\t')}"
+            try
+                order = trading.addOrder
+                    instrument: instrument
+                    side: 'sell'
+                    type: 'limit'
+                    amount: amount
+                    price: price
 
-            if order.filled
-                options.currency += (trade.sell.price * trade.sell.amount) * (1 - options.fee)
-                @profit += ((trade.sell.price * trade.sell.amount) * (1 - options.fee)) - ((trade.buy.price * trade.buy.amount) * (1 + options.fee))
-                debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
-                _.remove(@trades, (item) -> item.id == trade.id)
-        catch err
-            debug "CUR: #{options.currency}"
-            debug "ERR: #{err}: #{asset.amount} #{amount}"
+                trade.sellOrder(_.pick(order, ['id', 'side', 'amount', 'price', 'active', 'cancelled', 'filled']))
+                debug "ORDER: #{JSON.stringify(trade.sell, null, '\t')}"
+
+                if order.filled
+                    options.currency += (trade.sell.price * trade.sell.amount) * (1 - options.fee)
+                    @profit += ((trade.sell.price * trade.sell.amount) * (1 - options.fee)) - ((trade.buy.price * trade.buy.amount) * (1 + options.fee))
+                    debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
+                    _.remove(@trades, (item) -> item.id == trade.id)
+            catch err
+                debug "CUR: #{options.currency}"
+                debug "ERR: #{err}: #{asset.amount} #{amount}"
+        else
+            debug "AMOUNT MISMATCH: {asset.amount} #{amount}"
+            _.remove(@trades, (item) -> item.id == trade.id)
 
 class Trade
     constructor: (trade) ->
@@ -258,10 +268,12 @@ class Trade
     buyOrder: (order) ->
         @status = if order.id then TradeStatus.BUY else TradeStatus.FILLED
         @buy = order
+        @buy.at = new Date().getTime()
 
     sellOrder: (order) ->
         @status = if order.id then TradeStatus.SELL else TradeStatus.FILLED
         @sell = order
+        @sell.at = new Date().getTime()
 
     report: (instrument, price) ->
         percentChange = Helpers.percentChange(@buy.price, price)
