@@ -110,6 +110,7 @@ class Pair
         debug "*********** Pair #{@name} Restored *************"
         @count = pair.count || 0
         @profit = pair.profit || 0
+        @bhPrice = pair.bhPrice
         @trades = _.map pair.trades || [], (trade) ->
             new Trade(trade)
 
@@ -122,6 +123,7 @@ class Pair
         interval: @interval
         size: @size
         profit: @profit
+        bhPrice: @bhPrice
         trades: _.map @trades, (trade) ->
             trade.serialize()
 
@@ -136,10 +138,14 @@ class Pair
         instrument = datasources.get(@market, @name, @interval)
         ticker = trading.getTicker instrument
         tradePrice = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
-        if @profit > 0
-            info "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()}"
+
+        bhAmount = (_currencyLimit / _assets.length) / @bhPrice
+        bhProfit = ((tradePrice * bhAmount) * (1 - options.fee)) - ((@bhPrice * bhAmount) * (1 + options.fee))
+
+        if @profit >= 0
+            info "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
         else
-            warn "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()}"
+            warn "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
         _.each @trades, (trade) -> trade.report(instrument, tradePrice)
 
     confirmOrders: (portfolio, options) ->
@@ -174,6 +180,7 @@ class Pair
     update: (portfolio, options) ->
         instrument = datasources.get(@market, @name, @interval)
         price = instrument.price
+        @bhPrice ?= price
 
         rsis = Indicators.rsi(instrument.close, 14)
         rsi = rsis.pop()
