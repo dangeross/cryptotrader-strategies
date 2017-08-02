@@ -3,7 +3,7 @@ params = require 'params'
 trading = require 'trading'
 talib = require 'talib'
 
-_assets = ['xbt', 'eth', 'etc', 'ltc', 'xmr']
+_assets = ['xbt', 'eth', 'bch']
 _currency = 'eur'
 
 # secondary datasources
@@ -12,7 +12,7 @@ for asset in _assets.slice(1)
 
 # Params
 _currencyLimit = params.add 'Currency Limit', 1000
-_tradeLimit = params.add 'Trade Limit', 50
+_tradeLimit = params.add 'Trade Limit', 75
 _fee = params.add 'Trade Fee (%)', 0.26
 _takeProfit = params.add 'Take Profit (%)', 2.5
 _decimalPlaces = params.add 'Decimal Places', 4
