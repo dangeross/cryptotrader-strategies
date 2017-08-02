@@ -3,7 +3,7 @@ params = require 'params'
 trading = require 'trading'
 talib = require 'talib'
 
-_assets = ['xbt', 'eth', 'etc', 'ltc', 'xmr']
+_assets = ['etc', 'ltc', 'xmr', 'eos']
 _currency = 'eur'
 
 # secondary datasources
@@ -11,7 +11,7 @@ for asset in _assets.slice(1)
     datasources.add 'kraken', "#{asset}_#{_currency}", 1, 250
 
 # Params
-_currencyLimit = params.add 'Currency Limit', 1000
+_currencyLimit = params.add 'Currency Limit', 500
 _tradeLimit = params.add 'Trade Limit', 50
 _fee = params.add 'Trade Fee (%)', 0.26
 _takeProfit = params.add 'Take Profit (%)', 2.5
