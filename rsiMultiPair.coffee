@@ -52,13 +52,14 @@ class Portfolio
         primary = (@pairs.length == 0)
         @pairs.push(pair)
 
-    restore: (restorePairs, assets) ->
+    restore: (pairs, assets) ->
         debug "************ Portfolio Restored **************"
-        _.each(restorePairs, (restorePair) ->
-            if _.includes(assets, restorePair.asset)
-                pair = new Pair(restorePair.market, restorePair.asset, restorePair.currency, restorePair.interval, restorePair.size)
-                pair.restore(restorePair)
-                @add(pair)
+        _.each(pairs, (pair) ->
+            debug "PAIR #{pair.asset}"
+            if _.some(assets, (asset) -> pair.asset == asset)
+                restoredPair = new Pair(pair.market, pair.asset, pair.currency, pair.interval, pair.size)
+                restoredPair.restore(pair)
+                @add(restoredPair)
         , @)
         _.each(assets, (asset) ->
             if not _.some(@pairs, (pair) -> pair.asset == asset)
@@ -114,6 +115,8 @@ class Pair
     save: () ->
         count: @count
         market: @market
+        asset: @asset
+        currency: @currency
         name: @name
         interval: @interval
         size: @size
