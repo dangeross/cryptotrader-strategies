@@ -63,6 +63,7 @@ class Portfolio
         , @)
         _.each(assets, (asset) ->
             if not _.some(@pairs, (pair) -> pair.asset == asset)
+                debug "************* Pair #{@name} Added **************"
                 @add(new Pair('kraken', asset, _currency, 1, 250))
         , @)
 
