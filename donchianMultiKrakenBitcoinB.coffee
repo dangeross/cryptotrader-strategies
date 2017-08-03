@@ -10,6 +10,7 @@ talib = require 'talib'
 datasources.add 'kraken', 'etc_xbt', '1h', 250
 datasources.add 'kraken', 'zec_xbt', '1h', 250
 datasources.add 'kraken', 'icn_xbt', '1h', 250
+#datasources.add 'kraken', 'gno_xbt', '1h', 250
 
 # Params
 _currency = params.add 'Currency Limit', 250
@@ -29,18 +30,6 @@ PAIR_STATES =
 
 # Classes
 class Functions
-    save: (storage) ->
-        storage.pairs = []
-        
-        for pair in @pairs
-            storage.pairs.push(pair.save())
-            
-    stop: (instruments, options) ->
-        for pair in @pairs
-            instrument = datasources.get(pair.market, pair.name, pair.interval)
-            pair.stop(instrument, options)
-        
-    update: (instruments, options) ->
     @donchianMax: (inReal, optInTimePeriod) ->
         _.max(_.slice(inReal, inReal.length - optInTimePeriod))
     @donchianMin: (inReal, optInTimePeriod) ->
@@ -70,6 +59,18 @@ class Portfolio
             pair.restore(pairData.profit, pairData.state, pairData.price, pairData.volume)
             @add(pair)
             
+    save: (storage) ->
+        storage.pairs = []
+        
+        for pair in @pairs
+            storage.pairs.push(pair.save())
+            
+    stop: (instruments, options) ->
+        for pair in @pairs
+            instrument = datasources.get(pair.market, pair.name, pair.interval)
+            pair.stop(instrument, options)
+        
+    update: (instruments, options) ->
         @ticks++  
         
         for pair in @pairs
@@ -248,6 +249,7 @@ handle: ->
         @context.portfolio.add(new Pair('kraken', 'etc_xbt', '1h', 250))
         @context.portfolio.add(new Pair('kraken', 'zec_xbt', '1h', 250))
         @context.portfolio.add(new Pair('kraken', 'icn_xbt', '1h', 250))
+        #@context.portfolio.add(new Pair('kraken', 'gno_xbt', '1h', 250))
 
     @context.portfolio.update(@data.instruments, @context.options)
     @context.portfolio.save(@storage)
