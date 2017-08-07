@@ -12,12 +12,13 @@ for asset in _assets.slice(1)
 
 # Params
 _currencyLimit = params.add 'Currency Limit', 1000
-_tradeLimit = params.add 'Trade Limit', 50
+_tradeLimit = params.add 'Trade Limit', 75
 _fee = params.add 'Trade Fee (%)', 0.26
 _takeProfit = params.add 'Take Profit (%)', 2.5
 _decimalPlaces = params.add 'Decimal Places', 4
 _sellOnly = params.add 'Sell Only', false
 _sellOnStop = params.add 'Sell On Stop', false
+_addTrade = params.add 'Add Manual Trade', '{}'
 
 TradeStatus =
     BUY: 1
@@ -52,6 +53,17 @@ class Portfolio
         primary = (@pairs.length == 0)
         @pairs.push(pair)
 
+    addManualTrade: (tradeString) ->
+        tradeJson = JSON.parse(tradeString)
+        if tradeJson and tradeJson.asset
+            pair = _.find(@pairs, {asset: tradeJson.asset})
+            if pair and tradeJson.side == "buy"
+                trade = new Trade
+                    id: pair.count++
+                    status: TradeStatus.FILLED
+                trade.buy = tradeJson
+                pair.trades.push(trade)
+
     restore: (pairs, assets) ->
         debug "************ Portfolio Restored **************"
         _.each(pairs, (pair) ->
@@ -63,7 +75,7 @@ class Portfolio
         , @)
         _.each(assets, (asset) ->
             if not _.some(@pairs, (pair) -> pair.asset == asset)
-                debug "************* Pair #{asset}_#{_currency} Added **************"
+                debug "************* Pair #{@name} Added **************"
                 @add(new Pair('kraken', asset, _currency, 1, 250))
         , @)
 
@@ -240,6 +252,7 @@ class Pair
             catch err
                 debug "CUR: #{options.currency}"
                 debug "ERR: #{err}: #{currency.amount} #{limit}"
+                sendEmail "BUY FAILED: #{err}: #{amount} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{amount * price}"
 
     sell: (portfolio, instrument, options, trade) ->
         asset = portfolio.positions[instrument.asset()]
@@ -270,6 +283,7 @@ class Pair
             catch err
                 debug "CUR: #{options.currency}"
                 debug "ERR: #{err}: #{asset.amount} #{amount}"
+                sendEmail "SELL FAILED: #{err}: #{amount} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{amount * price}"
         else
             debug "AMOUNT MISMATCH: {asset.amount} #{amount}"
             _.remove(@trades, (item) -> item.id == trade.id)
@@ -348,6 +362,7 @@ onRestart: ->
     if @storage.pairs
         @context.portfolio = new Portfolio(@context.options)
         @context.portfolio.restore(@storage.pairs, _assets)
+        @context.portfolio.addManualTrade(_addTrade)
 
     if @storage.options
         debug "************* Options Restored ***************"
