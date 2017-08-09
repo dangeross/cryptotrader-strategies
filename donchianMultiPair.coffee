@@ -207,11 +207,13 @@ class Pair
                     debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
                     return true
                 else if order.cancelled
-                    return true
+                    trade.status = TradeStatus.FILLED
+                    return false
                 else
-                    warn "CANCEL ORDER: #{@asset} [#{trade.id}] #{trade.sell.amount} @ #{trade.sell.price}"
+                    trade.status = TradeStatus.FILLED
                     trading.cancelOrder(order)
-                    return true
+                    warn "CANCEL ORDER: #{@asset} [#{trade.id}] #{trade.sell.amount} @ #{trade.sell.price}"
+                    return false
             return false
         , @)
 

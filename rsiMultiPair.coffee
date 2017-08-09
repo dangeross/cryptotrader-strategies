@@ -178,9 +178,9 @@ class Pair
         _.each @trades, (trade) -> trade.report(instrument, tradePrice)
 
     confirmOrders: (portfolio, options) ->
+        now = new Date().getTime()
         @trades = _.reject(@trades, (trade) ->
             if trade.status == TradeStatus.BUY and trade.buy
-                now = new Date().getTime()
                 order = trading.getOrder(trade.buy.id)
                 debug "CHECK BUY ORDER: [#{trade.id}] #{JSON.stringify(_.pick(order, ['id', 'side', 'amount', 'price', 'active', 'cancelled', 'filled']), null, '\t')}"
                 if not order or order.filled
@@ -202,7 +202,13 @@ class Pair
                     debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
                     return true
                 else if order.cancelled
-                    return true
+                    trade.status = TradeStatus.FILLED
+                    return false
+                else if trade.sell.at < (now - 900000)
+                    trade.status = TradeStatus.FILLED
+                    trading.cancelOrder(order)
+                    warn "CANCEL ORDER: #{@asset} [#{trade.id}] #{trade.sell.amount} @ #{trade.sell.price}"
+                    return false
             return false
         , @)
 
@@ -217,9 +223,6 @@ class Pair
 
         if rsi != @rsi
             @rsi = rsi
-
-            #plot
-            #    rsi: @rsi
 
             if not options.disableBuy and rsiLast <= 30 and @rsi > 30
                 # Buy
