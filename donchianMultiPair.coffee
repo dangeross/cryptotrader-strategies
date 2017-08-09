@@ -3,10 +3,10 @@ params = require 'params'
 trading = require 'trading'
 talib = require 'talib'
 
-_market = 'kraken'
-_assets = ['xbt', 'eth', 'etc', 'ltc', 'xmr']
-_currency = 'eur'
-_interval = 1
+_market = 'bittrex'
+_assets = ['btc', 'eth', 'neo']
+_currency = 'usdt'
+_interval = '1h'
 
 # secondary datasources
 for asset in _assets.slice(1)
@@ -14,10 +14,10 @@ for asset in _assets.slice(1)
 
 # Params
 _currencyLimit = params.add 'Currency Limit', 1000
-_tradeLimit = params.add 'Trade Limit', 75
-_fee = params.add 'Trade Fee (%)', 0.26
-_takeProfit = params.add 'Take Profit (%)', 2.5
+_fee = params.add 'Trade Fee (%)', 0.25
 _decimalPlaces = params.add 'Decimal Places', 4
+_donchianPeriod = params.add 'Donchain Period', 23
+_emaSmoothing = params.add 'EMA Smoothing', 2
 _disableBuy = params.add 'Disable Buys', false
 _disableSell = params.add 'Disable Sells', false
 _sellOnStop = params.add 'Sell On Stop', false
@@ -37,10 +37,14 @@ class Helpers
         ((numberA * pow) + (numberB * pow)) / pow
     @percentChange: (oldPrice, newPrice) ->
         ((newPrice - oldPrice) / oldPrice) * 100
+    @maxSlice: (values, period) ->
+        _.max(_.slice(values, values.length - period))
+    @minSlice: (values, period) ->
+        _.min(_.slice(values, values.length - period))
 
 class Indicators
-    @rsi: (inReal, optInTimePeriod) ->
-        talib.RSI
+    @ema: (inReal, optInTimePeriod) ->
+        talib.EMA
             inReal: inReal
             startIdx: 0
             endIdx: inReal.length - 1
@@ -55,6 +59,9 @@ class Portfolio
     add: (pair) ->
         primary = (@pairs.length == 0)
         @pairs.push(pair)
+
+    count: () ->
+        _.reject(@pairs, (pair) -> pair.trades.length == 0).length
 
     addManualTrade: (tradeString, options) ->
         tradeJson = JSON.parse(tradeString)
@@ -111,14 +118,14 @@ class Portfolio
         for pair in @pairs
             portfolio = portfolios[pair.market]
             pair.confirmOrders(portfolio, options)
-            pair.update(portfolio, options)
 
-            if @ticks % 240 == 0
+        limit = options.currency / (@pairs.length - @count())
+
+        for pair in @pairs
+            pair.update(portfolio, options, limit)
+
+            if @ticks % 24 == 0
                 pair.report(portfolio, options)
-        debug "***** RSI: #{_.map(@pairs, (pair) ->
-            instrument = datasources.get(pair.market, pair.name, pair.interval)
-            "#{instrument.asset()} #{pair.rsi.toFixed(2)}"
-        ).join(', ')}"
 
 class Pair
     constructor: (market, asset, currency, interval, size = 100) ->
@@ -175,12 +182,10 @@ class Pair
             info "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
         else
             warn "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
-        _.each @trades, (trade) -> trade.report(instrument, tradePrice)
 
     confirmOrders: (portfolio, options) ->
         @trades = _.reject(@trades, (trade) ->
             if trade.status == TradeStatus.BUY and trade.buy
-                now = new Date().getTime()
                 order = trading.getOrder(trade.buy.id)
                 debug "CHECK BUY ORDER: [#{trade.id}] #{JSON.stringify(_.pick(order, ['id', 'side', 'amount', 'price', 'active', 'cancelled', 'filled']), null, '\t')}"
                 if not order or order.filled
@@ -189,7 +194,7 @@ class Pair
                     debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
                 else if order.cancelled
                     return true
-                else if trade.buy.at < (now - 900000)
+                else
                     warn "CANCEL ORDER: #{@asset} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}"
                     trading.cancelOrder(order)
                     return true
@@ -203,40 +208,31 @@ class Pair
                     return true
                 else if order.cancelled
                     return true
+                else
+                    warn "CANCEL ORDER: #{@asset} [#{trade.id}] #{trade.sell.amount} @ #{trade.sell.price}"
+                    trading.cancelOrder(order)
+                    return true
             return false
         , @)
 
-    update: (portfolio, options) ->
+    update: (portfolio, options, limit) ->
         instrument = datasources.get(@market, @name, @interval)
         price = instrument.price
         @bhPrice ?= price
 
-        rsis = Indicators.rsi(instrument.close, 14)
-        rsi = rsis.pop()
-        rsiLast = rsis.pop()
+        ema = Indicators.ema(instrument.close, options.emaSmoothing)
+        dMax = Helpers.maxSlice(ema, options.donchianPeriod)
+        dMin = Helpers.minSlice(ema, options.donchianPeriod)
 
-        if rsi != @rsi
-            @rsi = rsi
+        _.each(@trades, (trade) -> trade.report(instrument, options, price))
 
-            #plot
-            #    rsi: @rsi
+        if not options.disableBuy and @trades.length == 0 and price >= dMax
+            @buy(portfolio, instrument, options, limit)
+        else if not options.disableSell and @trades.length > 0 and price <= dMin
+            @sell(portfolio, instrument, options, _.first(@trades))
 
-            if not options.disableBuy and rsiLast <= 30 and @rsi > 30
-                # Buy
-                @buy(portfolio, instrument, options)
-            else if not options.disableSell and rsiLast >= 70 and @rsi < 70
-                # Sell
-                ticker = trading.getTicker instrument
-                price = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
-
-                _.each(
-                    _.filter(@trades, (trade) ->
-                        trade.status == TradeStatus.FILLED and trade.takeProfit(instrument, price, options))
-                    , (trade) -> @sell(portfolio, instrument, options, trade, price)
-                , @)
-
-    buy: (portfolio, instrument, options) ->
-        limit = options.tradeLimit * (1 - options.fee)
+    buy: (portfolio, instrument, options, tradeLimit) ->
+        limit = tradeLimit * (1 - options.fee)
         currency = portfolio.positions[instrument.base()]
 
         if options.currency > limit
@@ -275,11 +271,13 @@ class Pair
                     price: price
                     fee: options.fee
 
-    sell: (portfolio, instrument, options, trade, price) ->
+    sell: (portfolio, instrument, options, trade) ->
         asset = portfolio.positions[instrument.asset()]
         amount = if asset.amount < trade.buy.amount then asset.amount else trade.buy.amount
 
         if amount > 0
+            ticker = trading.getTicker instrument
+            price = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
             debug "SELL #{instrument.asset()} #{amount} @ #{price}: #{amount * price} #{instrument.curr()}"
 
             try
@@ -331,19 +329,11 @@ class Trade
         @sell.at = new Date().getTime()
         @sell.fee = options.fee
 
-    report: (instrument, price) ->
+    report: (instrument, options, price) ->
         percentChange = Helpers.percentChange(@buy.price, price)
-        debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{percentChange.toFixed(2)}%"
+        profit = ((price * @buy.amount) * (1 - options.fee)) - ((@buy.price * @buy.amount) * (1 + @buy.fee))
 
-    takeProfit: (instrument, price, options) ->
-        percentChange = Helpers.percentChange(@buy.price, price)
-
-        if percentChange >= options.takeProfit
-            info "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{percentChange.toFixed(2)}%"
-        else
-            debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{percentChange.toFixed(2)}%"
-
-        percentChange >= options.takeProfit
+        debug "#{instrument.asset()} [#{@id}] #{profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{@buy.amount} @ #{@buy.price}): #{percentChange.toFixed(2)}%"
 
 init: ->
     debug "*********** Instance Initialised *************"
@@ -351,16 +341,11 @@ init: ->
         fee: _fee / 100
         currency: _currencyLimit
         decimalPlaces: _decimalPlaces
-        tradeLimit: _tradeLimit
-        takeProfit: _takeProfit
+        donchianPeriod: _donchianPeriod
+        emaSmoothing: _emaSmoothing
         disableBuy: _disableBuy
         disableSell: _disableSell
         sellOnStop: _sellOnStop
-
-    setPlotOptions
-        rsi:
-            color: 'blue'
-            secondary: true
 
 handle: ->
     if !@storage.params
@@ -396,7 +381,7 @@ onRestart: ->
             else if @storage.params[key] != value
                 @storage.options[key] = value
             debug "options.#{key}: #{@storage.options[key]}"
-            
+
         @storage.params = _.clone(@context.options)
         @context.options = _.clone(@storage.options)
 
