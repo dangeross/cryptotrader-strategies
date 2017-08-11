@@ -226,7 +226,7 @@ class Pair
         dMax = Helpers.maxSlice(ema, options.donchianPeriod)
         dMin = Helpers.minSlice(ema, options.donchianPeriod)
 
-        _.each(@trades, (trade) -> trade.report(instrument, options, price))
+        _.each(@trades, (trade) -> trade.report(instrument, options, price, dMin))
 
         if not options.disableBuy and @trades.length == 0 and price >= dMax
             @buy(portfolio, instrument, options, limit)
@@ -331,11 +331,13 @@ class Trade
         @sell.at = new Date().getTime()
         @sell.fee = options.fee
 
-    report: (instrument, options, price) ->
-        percentChange = Helpers.percentChange(@buy.price, price)
-        profit = ((price * @buy.amount) * (1 - options.fee)) - ((@buy.price * @buy.amount) * (1 + @buy.fee))
+    report: (instrument, options, currentPrice, sellPrice) ->
+        currentPercentChange = Helpers.percentChange(@buy.price, currentPrice)
+        currentProfit = ((currentPrice * @buy.amount) * (1 - options.fee)) - ((@buy.price * @buy.amount) * (1 + @buy.fee))
+        sellPercentChange = Helpers.percentChange(@buy.price, sellPrice)
+        sellProfit = ((sellPrice * @buy.amount) * (1 - options.fee)) - ((@buy.price * @buy.amount) * (1 + @buy.fee))
 
-        debug "#{instrument.asset()} [#{@id}] #{profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{@buy.amount} @ #{@buy.price}): #{percentChange.toFixed(2)}%"
+        debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{currentProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{currentPercentChange.toFixed(2)}%): #{sellProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{sellPercentChange.toFixed(2)}%)"
 
 init: ->
     debug "*********** Instance Initialised *************"
