@@ -20,6 +20,7 @@ _donchianPeriod = params.add 'Donchain Period', 23
 _emaSmoothing = params.add 'EMA Smoothing', 2
 _disableBuy = params.add 'Disable Buys', false
 _disableSell = params.add 'Disable Sells', false
+_sellAtLoss = params.add 'Sell At Loss', true
 _sellOnStop = params.add 'Sell On Stop', false
 _addTrade = params.add 'Add Manual Trade', '{}'
 
@@ -119,11 +120,15 @@ class Portfolio
             portfolio = portfolios[pair.market]
             pair.confirmOrders(portfolio, options)
 
-        limit = options.currency / (@pairs.length - @count())
+        count = @count()
+
+        if count > 0
+            debug "**********************************************"
+
+        limit = options.currency / (@pairs.length - count)
 
         for pair in @pairs
             pair.update(portfolio, options, limit)
-
             if @ticks % 24 == 0
                 pair.report(portfolio, options)
 
@@ -231,7 +236,10 @@ class Pair
         if not options.disableBuy and @trades.length == 0 and price >= dMax
             @buy(portfolio, instrument, options, limit)
         else if not options.disableSell and @trades.length > 0 and price <= dMin
-            @sell(portfolio, instrument, options, _.first(@trades))
+            _.each(@trades, (trade) ->
+                if options.sellAtLoss or trade.profit(options, price) > 0
+                    @sell(portfolio, instrument, options, trade)
+            , @)
 
     buy: (portfolio, instrument, options, tradeLimit) ->
         limit = tradeLimit * (1 - options.fee)
@@ -331,13 +339,16 @@ class Trade
         @sell.at = new Date().getTime()
         @sell.fee = options.fee
 
+    profit: (options, price) ->
+        ((price * @buy.amount) * (1 - options.fee)) - ((@buy.price * @buy.amount) * (1 + @buy.fee))
+
     report: (instrument, options, currentPrice, sellPrice) ->
         currentPercentChange = Helpers.percentChange(@buy.price, currentPrice)
-        currentProfit = ((currentPrice * @buy.amount) * (1 - options.fee)) - ((@buy.price * @buy.amount) * (1 + @buy.fee))
+        currentProfit = @profit(options, currentPrice)
         sellPercentChange = Helpers.percentChange(@buy.price, sellPrice)
-        sellProfit = ((sellPrice * @buy.amount) * (1 - options.fee)) - ((@buy.price * @buy.amount) * (1 + @buy.fee))
+        sellProfit = @profit(options, sellPrice)
 
-        debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{currentProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{currentPercentChange.toFixed(2)}%): #{sellProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{sellPercentChange.toFixed(2)}%)"
+        debug "#{instrument.asset()} #{@buy.amount.toFixed(options.decimalPlaces)} [#{@id}] #{currentProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{currentPercentChange.toFixed(2)}%): #{sellProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{sellPercentChange.toFixed(2)}%)"
 
 init: ->
     debug "*********** Instance Initialised *************"
@@ -349,6 +360,7 @@ init: ->
         emaSmoothing: _emaSmoothing
         disableBuy: _disableBuy
         disableSell: _disableSell
+        sellAtLoss: _sellAtLoss
         sellOnStop: _sellOnStop
 
 handle: ->
