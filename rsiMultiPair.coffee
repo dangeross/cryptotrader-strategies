@@ -154,9 +154,10 @@ class Pair
             trade.serialize()
 
     stop: (portfolio, options) ->
-        if options.sellOnStop
-            instrument = datasources.get(@market, @name, @interval)
-            ticker = trading.getTicker instrument
+        instrument = datasources.get(@market, @name, @interval)
+        ticker = trading.getTicker instrument
+
+        if ticker and options.sellOnStop
             price = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
 
             _.each(@trades, (trade) ->
@@ -166,16 +167,18 @@ class Pair
     report: (portfolio, options) ->
         instrument = datasources.get(@market, @name, @interval)
         ticker = trading.getTicker instrument
-        tradePrice = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
 
-        bhAmount = (_currencyLimit / _assets.length) / @bhPrice
-        bhProfit = ((tradePrice * bhAmount) * (1 - options.fee)) - ((@bhPrice * bhAmount) * (1 + options.fee))
+        if ticker
+            tradePrice = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
 
-        if @profit >= 0
-            info "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
-        else
-            warn "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
-        _.each @trades, (trade) -> trade.report(instrument, tradePrice)
+            bhAmount = (_currencyLimit / _assets.length) / @bhPrice
+            bhProfit = ((tradePrice * bhAmount) * (1 - options.fee)) - ((@bhPrice * bhAmount) * (1 + options.fee))
+
+            if @profit >= 0
+                info "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
+            else
+                warn "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
+            _.each @trades, (trade) -> trade.report(instrument, tradePrice)
 
     confirmOrders: (portfolio, options) ->
         now = new Date().getTime()
@@ -230,20 +233,22 @@ class Pair
             else if not options.disableSell and rsiLast >= 70 and @rsi < 70
                 # Sell
                 ticker = trading.getTicker instrument
-                price = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
 
-                _.each(
-                    _.filter(@trades, (trade) ->
-                        trade.status == TradeStatus.FILLED and trade.takeProfit(instrument, price, options))
-                    , (trade) -> @sell(portfolio, instrument, options, trade, price)
-                , @)
+                if ticker
+                    price = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
+
+                    _.each(
+                        _.filter(@trades, (trade) ->
+                            trade.status == TradeStatus.FILLED and trade.takeProfit(instrument, price, options))
+                        , (trade) -> @sell(portfolio, instrument, options, trade, price)
+                    , @)
 
     buy: (portfolio, instrument, options) ->
         limit = options.tradeLimit * (1 - options.fee)
         currency = portfolio.positions[instrument.base()]
+        ticker = trading.getTicker instrument
 
-        if options.currency > limit
-            ticker = trading.getTicker instrument
+        if ticker and options.currency > limit
             price = Helpers.round(ticker.buy * 1.0001, options.decimalPlaces)
             amount = Helpers.round(limit / price, options.decimalPlaces)
 
@@ -399,7 +404,7 @@ onRestart: ->
             else if @storage.params[key] != value
                 @storage.options[key] = value
             debug "options.#{key}: #{@storage.options[key]}"
-            
+
         @storage.params = _.clone(@context.options)
         @context.options = _.clone(@storage.options)
 

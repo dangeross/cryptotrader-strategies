@@ -169,24 +169,28 @@ class Pair
         if options.sellOnStop
             instrument = datasources.get(@market, @name, @interval)
             ticker = trading.getTicker instrument
-            price = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
 
-            _.each(@trades, (trade) ->
-                @sell(portfolio, instrument, options, trade, price)
-            , @)
+            if ticker
+                price = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
+
+                _.each(@trades, (trade) ->
+                    @sell(portfolio, instrument, options, trade, price)
+                , @)
 
     report: (portfolio, options) ->
         instrument = datasources.get(@market, @name, @interval)
         ticker = trading.getTicker instrument
-        tradePrice = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
 
-        bhAmount = (_currencyLimit / _assets.length) / @bhPrice
-        bhProfit = ((tradePrice * bhAmount) * (1 - options.fee)) - ((@bhPrice * bhAmount) * (1 + options.fee))
+        if ticker
+            tradePrice = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
 
-        if @profit >= 0
-            info "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
-        else
-            warn "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
+            bhAmount = (_currencyLimit / _assets.length) / @bhPrice
+            bhProfit = ((tradePrice * bhAmount) * (1 - options.fee)) - ((@bhPrice * bhAmount) * (1 + options.fee))
+
+            if @profit >= 0
+                info "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
+            else
+                warn "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
 
     confirmOrders: (portfolio, options) ->
         @trades = _.reject(@trades, (trade) ->
@@ -244,9 +248,9 @@ class Pair
     buy: (portfolio, instrument, options, tradeLimit) ->
         limit = tradeLimit * (1 - options.fee)
         currency = portfolio.positions[instrument.base()]
+        ticker = trading.getTicker instrument
 
-        if options.currency > limit
-            ticker = trading.getTicker instrument
+        if ticker and options.currency > limit
             price = Helpers.round(ticker.buy * 1.0001, options.decimalPlaces)
             amount = Helpers.round(limit / price, options.decimalPlaces)
 
@@ -287,35 +291,37 @@ class Pair
 
         if amount > 0
             ticker = trading.getTicker instrument
-            price = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
-            debug "SELL #{instrument.asset()} #{amount} @ #{price}: #{amount * price} #{instrument.curr()}"
 
-            try
-                order = trading.addOrder
-                    instrument: instrument
-                    side: 'sell'
-                    type: 'limit'
-                    amount: amount
-                    price: price
+            if ticker
+                price = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
+                debug "SELL #{instrument.asset()} #{amount} @ #{price}: #{amount * price} #{instrument.curr()}"
 
-                trade.sellOrder(order, options)
-                debug "ORDER: #{JSON.stringify(trade.sell, null, '\t')}"
+                try
+                    order = trading.addOrder
+                        instrument: instrument
+                        side: 'sell'
+                        type: 'limit'
+                        amount: amount
+                        price: price
 
-                if order.filled
-                    options.currency += (trade.sell.price * trade.sell.amount) * (1 - trade.sell.fee)
-                    @profit += ((trade.sell.price * trade.sell.amount) * (1 - trade.sell.fee)) - ((trade.buy.price * trade.buy.amount) * (1 + trade.buy.fee))
-                    debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
-                    _.remove(@trades, (item) -> item.id == trade.id)
-            catch err
-                sendEmail "SELL FAILED: #{err}: #{amount} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{amount * price}"
-                debug "ERR: #{err}: #{asset.amount} #{options.currency}"
-                warn JSON.stringify
-                    id: trade.id
-                    asset: instrument.asset()
-                    side: 'sell'
-                    amount: amount
-                    price: price
-                    fee: options.fee
+                    trade.sellOrder(order, options)
+                    debug "ORDER: #{JSON.stringify(trade.sell, null, '\t')}"
+
+                    if order.filled
+                        options.currency += (trade.sell.price * trade.sell.amount) * (1 - trade.sell.fee)
+                        @profit += ((trade.sell.price * trade.sell.amount) * (1 - trade.sell.fee)) - ((trade.buy.price * trade.buy.amount) * (1 + trade.buy.fee))
+                        debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
+                        _.remove(@trades, (item) -> item.id == trade.id)
+                catch err
+                    sendEmail "SELL FAILED: #{err}: #{amount} #{instrument.asset()} @ #{price} #{instrument.curr()} = #{amount * price}"
+                    debug "ERR: #{err}: #{asset.amount} #{options.currency}"
+                    warn JSON.stringify
+                        id: trade.id
+                        asset: instrument.asset()
+                        side: 'sell'
+                        amount: amount
+                        price: price
+                        fee: options.fee
         else
             debug "AMOUNT MISMATCH: {asset.amount} #{amount}"
             _.remove(@trades, (item) -> item.id == trade.id)
