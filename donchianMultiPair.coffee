@@ -18,8 +18,9 @@ _fee = params.add 'Trade Fee (%)', 0.25
 _decimalPlaces = params.add 'Decimal Places', 4
 _donchianPeriod = params.add 'Donchain Period', 23
 _emaSmoothing = params.add 'EMA Smoothing', 2
-_disableBuy = params.add 'Disable Buys', false
-_disableSell = params.add 'Disable Sells', false
+_pairRestrictions = {}
+for asset in _assets
+    _pairRestrictions[asset] = params.addOptions "#{asset.toUpperCase()} Trading", ['Both', 'Buy', 'Sell', 'None'], 'Both'
 _sellAtLoss = params.add 'Sell At Loss', true
 _sellOnStop = params.add 'Sell On Stop', false
 _addTrade = params.add 'Add Manual Trade', '{}'
@@ -228,6 +229,7 @@ class Pair
 
     update: (portfolio, options, limit) ->
         instrument = datasources.get(@market, @name, @interval)
+        restriction = options.pairRestrictions[@asset]
         price = instrument.price
         @bhPrice ?= price
 
@@ -237,9 +239,9 @@ class Pair
 
         _.each(@trades, (trade) -> trade.report(instrument, options, price, dMin))
 
-        if not options.disableBuy and @trades.length == 0 and price >= dMax
+        if (restriction == 'Both' or restriction == 'Buy') and @trades.length == 0 and price >= dMax
             @buy(portfolio, instrument, options, limit)
-        else if not options.disableSell and @trades.length > 0 and price <= dMin
+        else if (restriction == 'Both' or restriction == 'Sell') and @trades.length > 0 and price <= dMin
             _.each(@trades, (trade) ->
                 if options.sellAtLoss or trade.profit(options, price) > 0
                     @sell(portfolio, instrument, options, trade)
@@ -364,8 +366,7 @@ init: ->
         decimalPlaces: _decimalPlaces
         donchianPeriod: _donchianPeriod
         emaSmoothing: _emaSmoothing
-        disableBuy: _disableBuy
-        disableSell: _disableSell
+        pairRestrictions: _pairRestrictions
         sellAtLoss: _sellAtLoss
         sellOnStop: _sellOnStop
 
@@ -400,9 +401,11 @@ onRestart: ->
         _.each @context.options, (value, key) ->
             if key == 'currency' and @storage.params.currency != value
                 @storage.options.currency = value - (@storage.params.currency - @storage.options.currency)
+            else if typeof @storage.options[key] is 'object'
+                @storage.options[key] = value
             else if @storage.params[key] != value
                 @storage.options[key] = value
-            debug "options.#{key}: #{@storage.options[key]}"
+            debug "options.#{key}: #{if typeof @storage.options[key] is 'object' then JSON.stringify(@storage.options[key]) else @storage.options[key]}"
 
         @storage.params = _.clone(@context.options)
         @context.options = _.clone(@storage.options)

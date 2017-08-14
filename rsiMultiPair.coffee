@@ -18,9 +18,10 @@ _tradeLimit = params.add 'Trade Limit', 75
 _fee = params.add 'Trade Fee (%)', 0.26
 _takeProfit = params.add 'Take Profit (%)', 2.5
 _decimalPlaces = params.add 'Decimal Places', 4
-_disableBuy = params.add 'Disable Buys', false
-_disableSell = params.add 'Disable Sells', false
 _sellOnStop = params.add 'Sell On Stop', false
+_pairRestrictions = {}
+for asset in _assets
+    _pairRestrictions[asset] = params.addOptions "#{asset.toUpperCase()} Trading", ['Both', 'Buy', 'Sell', 'None'], 'Both'
 _addTrade = params.add 'Add Manual Trade', '{}'
 
 TradeStatus =
@@ -217,6 +218,7 @@ class Pair
 
     update: (portfolio, options) ->
         instrument = datasources.get(@market, @name, @interval)
+        restriction = options.pairRestrictions[@asset]
         price = instrument.price
         @bhPrice ?= price
 
@@ -227,10 +229,10 @@ class Pair
         if rsi != @rsi
             @rsi = rsi
 
-            if not options.disableBuy and rsiLast <= 30 and @rsi > 30
+            if (restriction == 'Both' or restriction == 'Buy') and rsiLast <= 30 and @rsi > 30
                 # Buy
                 @buy(portfolio, instrument, options)
-            else if not options.disableSell and rsiLast >= 70 and @rsi < 70
+            else if (restriction == 'Both' or restriction == 'Sell') and rsiLast >= 70 and @rsi < 70
                 # Sell
                 ticker = trading.getTicker instrument
 
@@ -361,8 +363,7 @@ init: ->
         decimalPlaces: _decimalPlaces
         tradeLimit: _tradeLimit
         takeProfit: _takeProfit
-        disableBuy: _disableBuy
-        disableSell: _disableSell
+        pairRestrictions: _pairRestrictions
         sellOnStop: _sellOnStop
 
     setPlotOptions
@@ -401,9 +402,11 @@ onRestart: ->
         _.each @context.options, (value, key) ->
             if key == 'currency' and @storage.params.currency != value
                 @storage.options.currency = value - (@storage.params.currency - @storage.options.currency)
+            else if typeof @storage.options[key] is 'object'
+                @storage.options[key] = value
             else if @storage.params[key] != value
                 @storage.options[key] = value
-            debug "options.#{key}: #{@storage.options[key]}"
+            debug "options.#{key}: #{if typeof @storage.options[key] is 'object' then JSON.stringify(@storage.options[key]) else @storage.options[key]}"
 
         @storage.params = _.clone(@context.options)
         @context.options = _.clone(@storage.options)
