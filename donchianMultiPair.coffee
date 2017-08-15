@@ -184,14 +184,16 @@ class Pair
 
         if ticker
             tradePrice = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
-
             bhAmount = (_currencyLimit / _assets.length) / @bhPrice
             bhProfit = ((tradePrice * bhAmount) * (1 - options.fee)) - ((@bhPrice * bhAmount) * (1 + options.fee))
+            vestedProfit = _.reduce(@trades, (total, trade) ->
+                total + trade.profit(options, tradePrice)
+            , @profit)
 
             if @profit >= 0
-                info "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
+                info "EARNINGS #{instrument.asset()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()}/INC TRADES #{vestedProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
             else
-                warn "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
+                warn "EARNINGS #{instrument.asset()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()}/INC TRADES #{vestedProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
 
     confirmOrders: (portfolio, options) ->
         @trades = _.reject(@trades, (trade) ->
@@ -356,7 +358,7 @@ class Trade
         sellPercentChange = Helpers.percentChange(@buy.price, sellPrice)
         sellProfit = @profit(options, sellPrice)
 
-        debug "#{instrument.asset()} #{@buy.amount.toFixed(options.decimalPlaces)} [#{@id}] #{currentProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{currentPercentChange.toFixed(2)}%): #{sellProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{sellPercentChange.toFixed(2)}%)"
+        debug "#{instrument.asset()} #{@buy.amount} [#{@id}] #{currentProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{currentPercentChange.toFixed(2)}%): #{sellProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{sellPercentChange.toFixed(2)}%)"
 
 init: ->
     debug "*********** Instance Initialised *************"

@@ -171,15 +171,17 @@ class Pair
 
         if ticker
             tradePrice = Helpers.round(ticker.sell * 0.9999, options.decimalPlaces)
-
             bhAmount = (_currencyLimit / _assets.length) / @bhPrice
             bhProfit = ((tradePrice * bhAmount) * (1 - options.fee)) - ((@bhPrice * bhAmount) * (1 + options.fee))
+            vestedProfit = _.reduce(@trades, (total, trade) ->
+                total + trade.profit(options, tradePrice)
+            , @profit)
 
             if @profit >= 0
-                info "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
+                info "EARNINGS #{instrument.asset()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()}/INC TRADES #{vestedProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
             else
-                warn "EARNINGS #{instrument.asset().toUpperCase()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
-            _.each @trades, (trade) -> trade.report(instrument, tradePrice)
+                warn "EARNINGS #{instrument.asset()}: #{@profit.toFixed(options.decimalPlaces)} #{instrument.curr()}/INC TRADES #{vestedProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (B/H: #{bhProfit.toFixed(options.decimalPlaces)} #{instrument.curr()})"
+            _.each @trades, (trade) -> trade.report(instrument, tradePrice, options)
 
     confirmOrders: (portfolio, options) ->
         now = new Date().getTime()
@@ -341,17 +343,22 @@ class Trade
         @sell.at = new Date().getTime()
         @sell.fee = options.fee
 
-    report: (instrument, price) ->
+    report: (instrument, price, options) ->
         percentChange = Helpers.percentChange(@buy.price, price)
-        debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{percentChange.toFixed(2)}%"
+        profit = @profit(options, price)
+        debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{percentChange.toFixed(2)}%)"
+
+    profit: (options, price) ->
+        ((price * @buy.amount) * (1 - options.fee)) - ((@buy.price * @buy.amount) * (1 + @buy.fee))
 
     takeProfit: (instrument, price, options) ->
         percentChange = Helpers.percentChange(@buy.price, price)
+        profit = @profit(options, price)
 
         if percentChange >= options.takeProfit
-            info "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{percentChange.toFixed(2)}%"
+            info "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{percentChange.toFixed(2)}%)"
         else
-            debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{percentChange.toFixed(2)}%"
+            debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{profit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{percentChange.toFixed(2)}%)"
 
         percentChange >= options.takeProfit
 
