@@ -299,8 +299,7 @@ class Pair
 
                 @trades.push(trade)
             catch err
-                if err.match /TIMEDOUT|Future/gi
-                    debug "CONFIRMATION NEEDED"
+                if /timedout|future/gi.exec err
                     trade.buyOrder({
                         side: 'buy',
                         amount: amount,
@@ -343,8 +342,7 @@ class Pair
                     debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
                     _.remove(@trades, (item) -> item.id == trade.id)
             catch err
-                if err.match /TIMEDOUT|Future/gi
-                    debug "CONFIRMATION NEEDED"
+                if /timedout|future/gi.exec err
                     trade.sellOrder({
                         side: 'sell',
                         amount: amount,
