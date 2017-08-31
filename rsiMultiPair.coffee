@@ -83,16 +83,15 @@ class Portfolio
                         options.currency -= (trade.buy.price * trade.buy.amount) * (1 + trade.buy.fee)
                         debug "CURRENCY: #{options.currency}"
                         pair.trades.push(trade)
-                else if tradeJson.side == 'sell'
-                    if trade and trade.status == TradeStatus.UNCONFIRMED
-                        if tradeJson.confirm
-                            options.currency += (tradeJson.price * tradeJson.amount) * (1 - tradeJson.fee)
-                            pair.profit += ((tradeJson.price * tradeJson.amount) * (1 - tradeJson.fee)) - ((trade.buy.price * trade.buy.amount) * (1 + trade.buy.fee))
-                            debug "CURRENCY: #{options.currency} PROFIT: #{pair.profit}"
-                            _.remove(pair.trades, (item) -> item.id == trade.id)
-                        else
-                            trade.status = TradeStatus.IDLE
-                            delete trade.sell
+                else if tradeJson.side == 'sell' and trade
+                    if tradeJson.confirm
+                        options.currency += (tradeJson.price * tradeJson.amount) * (1 - tradeJson.fee)
+                        pair.profit += ((tradeJson.price * tradeJson.amount) * (1 - tradeJson.fee)) - ((trade.buy.price * trade.buy.amount) * (1 + trade.buy.fee))
+                        debug "CURRENCY: #{options.currency} PROFIT: #{pair.profit}"
+                        _.remove(pair.trades, (item) -> item.id == trade.id)
+                    else
+                        trade.status = TradeStatus.IDLE
+                        delete trade.sell
 
     restore: (portfolios, options, pairs, assets) ->
         debug "************ Portfolio Restored **************"
