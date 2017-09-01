@@ -154,8 +154,10 @@ class Pair
         @count = pair.count || 0
         @profit = pair.profit || 0
         @bhPrice = pair.bhPrice
-        @trades = _.map pair.trades || [], (trade) ->
+        @trades = _.map(pair.trades || [], (trade) ->
+            trade.id ?= ++@count
             new Trade(trade)
+        , @)
 
     save: () ->
         count: @count
