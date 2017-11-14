@@ -4,7 +4,7 @@ trading = require 'trading'
 talib = require 'talib'
 
 _market = 'poloniex'
-_assets = ['btc', 'eth', 'dash', 'xrp', 'zec']
+_assets = ['btc', 'etc', 'ltc', 'xmr']
 _currency = 'usdt'
 _interval = 1
 
