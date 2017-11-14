@@ -77,7 +77,7 @@ class Portfolio
                             _.remove(pair.trades, (item) -> item.id == trade.id)
                     else if not trade and tradeJson.confirm
                         trade = new Trade
-                            id: tradeJson.id
+                            id: pair.count++
                             status: TradeStatus.IDLE
                         trade.buy = tradeJson
                         options.currency -= (trade.buy.price * trade.buy.amount) * (1 + trade.buy.fee)
@@ -111,10 +111,7 @@ class Portfolio
         , @)
 
     save: (storage) ->
-        storage.pairs = []
-
-        for pair in @pairs
-            storage.pairs.push(pair.save())
+        storage.pairs = JSON.stringify(_.map @pairs, (pair) -> pair.save())
 
     stop: (portfolios, instruments, options) ->
         for pair in @pairs
@@ -448,7 +445,7 @@ onRestart: ->
 
     if @storage.pairs
         @context.portfolio = new Portfolio(@context.options)
-        @context.portfolio.restore(@portfolios, @context.options, @storage.pairs, _assets)
+        @context.portfolio.restore(@portfolios, @context.options, JSON.parse(@storage.pairs), _assets)
 
     if @storage.options
         debug "************* Options Restored ***************"
