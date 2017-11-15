@@ -15,7 +15,6 @@ for asset in _assets.slice(1)
 # Params
 _addTrade = params.add 'Add Manual Trade', '{}'
 _currencyLimit = params.add 'Currency Limit', 1000
-_updateCurrency = params.add 'Update Currency', false
 _tradeLimit = params.add 'Trade Limit', 150
 _fee = params.add 'Trade Fee (%)', 0.15
 _takeProfit = params.add 'Take Profit (%)', 2.5
@@ -451,8 +450,8 @@ onRestart: ->
     if @storage.options
         debug "************* Options Restored ***************"
         _.each @context.options, (value, key) ->
-            if key == 'currency'
-                @storage.options.currency = if _updateCurrency then value else @storage.options.currency
+            if key == 'currency' and @storage.params.currency != value
+                @storage.options.currency = value
             else if typeof @storage.options[key] is 'object'
                 @storage.options[key] = value
             else if @storage.params[key] != value
