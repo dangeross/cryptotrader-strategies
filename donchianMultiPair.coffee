@@ -402,7 +402,7 @@ onRestart: ->
         debug "************* Options Restored ***************"
         _.each @context.options, (value, key) ->
             if key == 'currency' and @storage.params.currency != value
-                @storage.options.currency = value - (@storage.params.currency - @storage.options.currency)
+                @storage.options.currency = value
             else if typeof @storage.options[key] is 'object'
                 @storage.options[key] = value
             else if @storage.params[key] != value
@@ -414,3 +414,5 @@ onRestart: ->
 
     if @context.portfolio
         @context.portfolio.addManualTrade(_addTrade, @context.options)
+        @context.portfolio.save(@storage)
+        @storage.options = @context.options
