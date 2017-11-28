@@ -423,7 +423,7 @@ init: ->
 
 handle: ->
     if !@storage.params
-        @storage.params = _.clone(@context.options)
+        @storage.params = _.cloneDeep(@context.options)
 
     if !@context.portfolio
         @context.portfolio = new Portfolio(@context.options)
@@ -450,16 +450,16 @@ onRestart: ->
     if @storage.options
         debug "************* Options Restored ***************"
         _.each @context.options, (value, key) ->
-            if key == 'currency' and @storage.params.currency != value
-                @storage.options.currency = value
-            else if typeof @storage.options[key] is 'object'
-                @storage.options[key] = value
-            else if @storage.params[key] != value
-                @storage.options[key] = value
-            debug "options.#{key}: #{if typeof @storage.options[key] is 'object' then JSON.stringify(@storage.options[key]) else @storage.options[key]}"
+            if typeof @storage.options[key] is 'object'
+                @storage.options[key] = @context.options[key]
+            else if @storage.params[key] != @context.options[key]
+                @storage.options[key] = @context.options[key]
+            debug "context.options.#{key}: #{if typeof @context.options[key] is 'object' then JSON.stringify(@context.options[key]) else @context.options[key]}"
+            debug "storage.params.#{key}: #{if typeof @storage.params[key] is 'object' then JSON.stringify(@storage.params[key]) else @storage.params[key]}"
+            debug "storage.options.#{key}: #{if typeof @storage.options[key] is 'object' then JSON.stringify(@storage.options[key]) else @storage.options[key]}"
 
-        @storage.params = _.clone(@context.options)
-        @context.options = _.clone(@storage.options)
+        @storage.params = _.cloneDeep(@context.options)
+        @context.options = _.cloneDeep(@storage.options)
 
     if @context.portfolio
         @context.portfolio.addManualTrade(_addTrade, @context.options)
