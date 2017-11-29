@@ -62,7 +62,7 @@ class Portfolio
         @pairs.push(pair)
 
     addManualTrade: (tradeString, options) ->
-        tradeJson = JSON.parse(tradeString)
+        tradeJson = Trade.lengthen(JSON.parse(tradeString))
         if tradeJson and tradeJson.asset
             pair = _.find(@pairs, {asset: tradeJson.asset})
             if pair
@@ -309,12 +309,12 @@ class Pair
                 debug "ERR: #{err}: #{currency.amount} #{options.currency}"
                 warn JSON.stringify
                     id: trade.id
-                    confirm: true
-                    asset: instrument.asset()
-                    side: 'buy'
-                    amount: amount
-                    price: price
-                    fee: options.fee
+                    co: true
+                    as: instrument.asset()
+                    si: 'buy'
+                    am: amount
+                    pr: price
+                    fe: options.fee
 
     sell: (portfolio, instrument, options, trade, price) ->
         asset = portfolio.positions[instrument.asset()]
@@ -351,12 +351,12 @@ class Pair
                 debug "ERR: #{err}: #{asset.amount} #{options.currency}"
                 warn JSON.stringify
                     id: trade.id
-                    confirm: true
-                    asset: instrument.asset()
-                    side: 'sell'
-                    amount: amount
-                    price: price
-                    fee: options.fee
+                    co: true
+                    as: instrument.asset()
+                    si: 'sell'
+                    am: amount
+                    pr: price
+                    fe: options.fee
         else
             debug "AMOUNT MISMATCH: {asset.amount} #{amount}"
             _.remove(@trades, (item) -> item.id == trade.id)
@@ -364,10 +364,28 @@ class Pair
 class Trade
     constructor: (trade) ->
         _.extend(@, trade)
+        
+    @shorten: (order) ->
+        id: order.id
+        co: order.confirm
+        as: order.asset
+        si: order.side
+        am: order.amount
+        pr: order.price
+        fe: order.fee
+        
+    @lengthen: (order) ->
+        id: order.id
+        confirm: order.co
+        asset: order.as
+        side: order.si
+        amount: order.am
+        price: order.pr
+        fee: order.fe
 
     serialize: () ->
         JSON.parse(JSON.stringify(@))
-
+    
     buyOrder: (order, options) ->
         @status = if order.id then TradeStatus.ACTIVE else TradeStatus.IDLE
         @buy = _.pick(order, ['id', 'side', 'amount', 'price'])
@@ -432,7 +450,7 @@ handle: ->
 
     @context.portfolio.update(@portfolios, @data.instruments, @context.options)
     @context.portfolio.save(@storage)
-    @storage.options = @context.options
+    @storage.options = _.cloneDeep(@context.options)
 
 onStop: ->
     debug "************* Instance Stopped ***************"
