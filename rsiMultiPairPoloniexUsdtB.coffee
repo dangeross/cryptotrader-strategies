@@ -16,6 +16,7 @@ for asset in _assets.slice(1)
 _addTrade = params.add 'Add Manual Trade', '{}'
 _currencyLimit = params.add 'Currency Limit', 1000
 _tradeLimit = params.add 'Trade Limit', 150
+_iceTrades = params.add 'Ice Trades', 2
 _fee = params.add 'Trade Fee (%)', 0.15
 _takeProfit = params.add 'Take Profit (%)', 2.5
 _sellOnStop = params.add 'Sell On Stop', false
@@ -51,7 +52,7 @@ class Indicators
             endIdx: inReal.length - 1
             optInTimePeriod: optInTimePeriod
 
-class Portfolio
+class Market
     constructor: (options) ->
         @ticks = 0
         @pairs = []
@@ -119,13 +120,20 @@ class Portfolio
             pair.report(portfolio, options)
             pair.stop(portfolio, options)
 
+    reserved: () ->
+        _.reduce(@pairs, (reserve, pair) ->
+            _.reduce(pair.trades, (total, trade) -> 
+                total + if trade.status == TradeStatus.ACTIVE and trade.buy and not trade.sell then (trade.buy.price * trade.buy.amount) * (1 + trade.buy.fee) else 0
+            , reserve)
+        , 0)
+    
     update: (portfolios, instruments, options) ->
         @ticks++
 
         for pair in @pairs
             portfolio = portfolios[pair.market]
             pair.confirmOrders(portfolio, options)
-            pair.update(portfolio, options)
+            pair.update(portfolio, @, options)
 
             if @ticks % 240 == 0
                 pair.report(portfolio, options)
@@ -237,7 +245,7 @@ class Pair
             return false
         , @)
 
-    update: (portfolio, options) ->
+    update: (portfolio, market, options) ->
         instrument = datasources.get(@market, @name, @interval)
         pairOptions = options.pair[@asset]
         price = instrument.price
@@ -252,7 +260,8 @@ class Pair
 
             if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and rsiLast <= 30 and @rsi > 30
                 # Buy
-                @buy(portfolio, instrument, options)
+                for count in [1..options.iceTrades]
+                    @buy(portfolio, market, instrument, options)
             else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and rsiLast >= 70 and @rsi < 70
                 # Sell
                 ticker = trading.getTicker instrument
@@ -266,14 +275,18 @@ class Pair
                         , (trade) -> @sell(portfolio, instrument, options, trade, price)
                     , @)
 
-    buy: (portfolio, instrument, options) ->
+    buy: (portfolio, market, instrument, options) ->
         limit = options.tradeLimit * (1 - options.fee)
         currency = portfolio.positions[instrument.base()]
+        reserved = market.reserved()
+        availableCurrency = options.currency - reserved
         pairOptions = options.pair[@asset]
         ticker = trading.getTicker instrument
+        
+        debug "RESERVED: #{reserved} AVAILABLE: #{availableCurrency}"
 
-        if ticker and options.currency > limit
-            price = Helpers.round(ticker.buy * 1.0001, pairOptions.precision)
+        if ticker and availableCurrency > limit
+            price = Helpers.round(ticker.buy * (1 + (Math.random() * 0.0001)), pairOptions.precision)
             amount = Helpers.round(limit / price, options.volumePrecision)
             debug "BUY #{instrument.asset()} #{amount} @ #{price}: #{amount * price} #{instrument.curr()}"
 
@@ -429,6 +442,7 @@ init: ->
         fee: _fee / 100
         currency: _currencyLimit
         tradeLimit: _tradeLimit
+        iceTrades: _iceTrades
         takeProfit: _takeProfit
         pair: _pairParams
         sellOnStop: _sellOnStop
@@ -444,7 +458,7 @@ handle: ->
         @storage.params = _.cloneDeep(@context.options)
 
     if !@context.portfolio
-        @context.portfolio = new Portfolio(@context.options)
+        @context.portfolio = new Market(@context.options)
         for asset in _assets
             @context.portfolio.add(new Pair(_market, asset, _currency, _interval, 250))
 
@@ -462,15 +476,16 @@ onRestart: ->
     debug "************ Instance Restarted **************"
 
     if @storage.pairs
-        @context.portfolio = new Portfolio(@context.options)
+        @context.portfolio = new Market(@context.options)
         @context.portfolio.restore(@portfolios, @context.options, JSON.parse(@storage.pairs), _assets)
 
     if @storage.options
         debug "************* Options Restored ***************"
         _.each @context.options, (value, key) ->
-            if typeof @storage.options[key] is 'object'
-                @storage.options[key] = @context.options[key]
-            else if @storage.params[key] != @context.options[key]
+            if key is 'currency'
+                if @storage.params[key] != @context.options[key]
+                    @storage.options[key] = @context.options[key]
+            else
                 @storage.options[key] = @context.options[key]
             debug "context.options.#{key}: #{if typeof @context.options[key] is 'object' then JSON.stringify(@context.options[key]) else @context.options[key]}"
             debug "storage.params.#{key}: #{if typeof @storage.params[key] is 'object' then JSON.stringify(@storage.params[key]) else @storage.params[key]}"
