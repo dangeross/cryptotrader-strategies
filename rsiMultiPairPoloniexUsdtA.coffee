@@ -69,12 +69,12 @@ class Market
             if pair
                 trade = _.find(pair.trades, {id: tradeJson.id})
                 if tradeJson.side == 'buy'
-                    if trade and trade.status == TradeStatus.UNCONFIRMED
-                        if tradeJson.confirm
+                    if trade
+                        if trade.status == TradeStatus.UNCONFIRMED and tradeJson.confirm
                             trade.status = TradeStatus.IDLE
                             options.currency -= (trade.buy.price * trade.buy.amount) * (1 + trade.buy.fee)
                             debug "CURRENCY: #{options.currency}"
-                        else
+                        else if not tradeJson.confirm
                             _.remove(pair.trades, (item) -> item.id == trade.id)
                     else if not trade and tradeJson.confirm
                         trade = new Trade
