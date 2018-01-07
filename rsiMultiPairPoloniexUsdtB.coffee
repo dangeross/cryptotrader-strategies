@@ -139,10 +139,10 @@ class Market
 
             if @ticks % 240 == 0
                 pair.report(portfolio, options)
-        #debug "***** RSI: #{_.map(@pairs, (pair) ->
-        #    instrument = datasources.get(pair.market, pair.name, pair.interval)
-        #    "#{instrument.asset()} #{Helpers.toFixed(pair.rsi)}"
-        #).join(', ')}"
+        debug "***** RSI: #{_.map(@pairs, (pair) ->
+            instrument = datasources.get(pair.market, pair.name, pair.interval)
+            "#{instrument.asset()} #{Helpers.toFixed(pair.rsi)}"
+        ).join(', ')}"
 
 class Pair
     constructor: (market, asset, currency, interval, size = 100) ->
@@ -200,17 +200,20 @@ class Pair
             tradePrice = Helpers.round(ticker.sell * 0.9999, pairOptions.precision)
             bhAmount = (_currencyLimit / _assets.length) / @bhPrice
             bhProfit = ((tradePrice * bhAmount) * (1 - options.fee)) - ((@bhPrice * bhAmount) * (1 + options.fee))
-            vestedProfit = _.reduce(@trades, (total, trade) ->
-                total + trade.profit(options, tradePrice)
+            currentProfit = _.reduce(@trades, (total, trade) ->
+                Helpers.floatAddition(total, trade.profit(options, tradePrice))
             , @profit)
+            currentAsset = Helpers.round(_.reduce(@trades, (total, trade) ->
+                Helpers.floatAddition(total, if trade.status is TradeStatus.IDLE then trade.buy.amount else 0)
+            , 0), options.volumePrecision);
             
             dynamicGainTrigger = Helpers.percentChange(Helpers.last(instrument.close, 360), tradePrice) / 2
             gainTrigger = Math.max(options.takeProfit, dynamicGainTrigger)
 
             if @profit >= 0
-                info "EARNINGS #{instrument.asset()}: #{Helpers.toFixed(@profit, pairOptions.precision)} #{instrument.curr()}/INC TRADES #{Helpers.toFixed(vestedProfit, pairOptions.precision)} #{instrument.curr()} (B/H: #{Helpers.toFixed(bhProfit, pairOptions.precision)} #{instrument.curr()})"
+                info "EARNINGS #{instrument.asset()}: #{Helpers.toFixed(@profit, pairOptions.precision)} #{instrument.curr()}/INC TRADES (#{currentAsset} #{instrument.asset()}) #{Helpers.toFixed(currentProfit, pairOptions.precision)} #{instrument.curr()} (B/H: #{Helpers.toFixed(bhProfit, pairOptions.precision)} #{instrument.curr()})"
             else
-                warn "EARNINGS #{instrument.asset()}: #{Helpers.toFixed(@profit, pairOptions.precision)} #{instrument.curr()}/INC TRADES #{Helpers.toFixed(vestedProfit, pairOptions.precision)} #{instrument.curr()} (B/H: #{Helpers.toFixed(bhProfit, pairOptions.precision)} #{instrument.curr()})"
+                warn "EARNINGS #{instrument.asset()}: #{Helpers.toFixed(@profit, pairOptions.precision)} #{instrument.curr()}/INC TRADES (#{currentAsset} #{instrument.asset()}) #{Helpers.toFixed(currentProfit, pairOptions.precision)} #{instrument.curr()} (B/H: #{Helpers.toFixed(bhProfit, pairOptions.precision)} #{instrument.curr()})"
             _.each @trades, (trade) -> trade.report(instrument, tradePrice, gainTrigger, options)
 
     confirmOrders: (portfolio, options) ->
