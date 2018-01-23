@@ -50,6 +50,10 @@ class Series
     @abs: (array) ->
         _.map array, (value) ->
             Math.abs(value)
+    @average: (array) ->
+        _.reduce(array, (total, value) -> 
+            total + (value || 0)
+        , 0) / array.length
     @divide: (arrayA, arrayB) ->
         _.map arrayA, (value, index) ->
             value / (arrayB[index] || 1)
@@ -313,6 +317,7 @@ class Pair
             obl2: 53
             osl1: -60
             osl2: -53
+            hlc3a: Series.average(ap)
 
         if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and rsi1 <= 30 and @rsi > 30 and @wt2 < -53
             debug "#{rsi1}/#{@rsi}/#{@wt2}"
