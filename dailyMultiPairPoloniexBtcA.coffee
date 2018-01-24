@@ -8,6 +8,10 @@ _assets = ['nxt']#, 'pasc', 'dcr', 'vtc', 'bts']
 _currency = 'btc'
 _interval = '1d'
 
+_ppoF = 4
+_ppoS = 24
+_ppoT = 3
+
 # secondary datasources
 for asset in _assets.slice(1)
     datasources.add _market, "#{asset}_#{_currency}", _interval, 250
@@ -78,6 +82,14 @@ class Indicators
     @hlc3: (instrument) ->
         _.map instrument.close, (close, index) ->
             (instrument.high[index] + instrument.low[index] + instrument.close[index]) / 3
+    @ppo: (inReal, optInFastPeriod, optInSlowPeriod, optInMAType = 0) ->
+        talib.PPO
+            inReal: inReal
+            startIdx: 0
+            endIdx: inReal.length - 1
+            optInFastPeriod: optInFastPeriod
+            optInSlowPeriod: optInSlowPeriod
+            optInMAType: optInMAType
     @sma: (inReal, optInTimePeriod) ->
         talib.SMA
             inReal: inReal
@@ -178,7 +190,7 @@ class Market
                 pair.report(portfolio, options)
         debug "***** RSI: #{_.map(@pairs, (pair) ->
             instrument = datasources.get(pair.market, pair.name, pair.interval)
-            "#{instrument.asset()} (#{Helpers.toFixed(pair.rsi)}/#{Helpers.toFixed(pair.wt2)})"
+            "#{instrument.asset()} (#{Helpers.toFixed(pair.rsi)}/#{Helpers.toFixed(pair.wt1)}/#{Helpers.toFixed(pair.wt2)}/#{Helpers.toFixed(pair.ppo)})"
         ).join(', ')}"
 
 class Pair
@@ -307,6 +319,10 @@ class Pair
         @wt1 = Helpers.last(wt1)
         @wt2 = Helpers.last(wt2)
         @ap = Series.average(ap)
+        
+        ppo = Indicators.ppo(instrument.close, _ppoF, _ppoS, _ppoT)
+        @ppo = Helpers.last(ppo)
+        ppo1 = Helpers.last(ppo, 1)
 
         plot
             rsi: @rsi - 165
@@ -319,13 +335,14 @@ class Pair
             osl1: -60
             osl2: -53
             ap: @ap
+            ppo: @ppo
 
         if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and rsi1 <= 30 and @rsi > 30 and @wt2 < -53 and instrument.price < @ap
             debug "#{rsi1}/#{@rsi}/#{@wt2}"
             # Buy
             for count in [1..options.iceTrades]
                 @buy(portfolio, market, instrument, options)
-        else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and rsi1 >= 70 and @rsi < 70 and @wt2 > 50 and instrument.price > @ap
+        else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and @rsi > 70 and @wt1 > 50 and instrument.price > @ap and (ppo1 >= 40 and @ppo < ppo1)
             # Sell
             ticker = trading.getTicker instrument
 
@@ -512,6 +529,9 @@ init: ->
         volumePrecision: _volumePrecision
         
     setPlotOptions
+        ppo:
+            color: 'orange'
+            secondary: true
         rsi:
             color: 'blue'
             secondary: true
