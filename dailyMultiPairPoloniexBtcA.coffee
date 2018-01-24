@@ -306,6 +306,7 @@ class Pair
         wt2 = Indicators.sma(wt1, 4)
         @wt1 = Helpers.last(wt1)
         @wt2 = Helpers.last(wt2)
+        @ap = Series.average(ap)
 
         plot
             rsi: @rsi - 165
@@ -317,14 +318,14 @@ class Pair
             obl2: 53
             osl1: -60
             osl2: -53
-            hlc3a: Series.average(ap)
+            ap: @ap
 
-        if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and rsi1 <= 30 and @rsi > 30 and @wt2 < -53
+        if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and rsi1 <= 30 and @rsi > 30 and @wt2 < -53 and instrument.price < @ap
             debug "#{rsi1}/#{@rsi}/#{@wt2}"
             # Buy
             for count in [1..options.iceTrades]
                 @buy(portfolio, market, instrument, options)
-        else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and rsi1 >= 70 and @rsi < 70 and @wt2 > 50
+        else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and rsi1 >= 70 and @rsi < 70 and @wt2 > 50 and instrument.price > @ap
             # Sell
             ticker = trading.getTicker instrument
 
