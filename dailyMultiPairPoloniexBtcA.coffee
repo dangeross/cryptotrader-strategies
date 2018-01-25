@@ -4,12 +4,13 @@ trading = require 'trading'
 talib = require 'talib'
 
 _market = 'poloniex'
-_assets = ['nxt']#, 'pasc', 'dcr', 'vtc', 'bts']
+_assets = ['game']#, 'pasc', 'dcr', 'vtc', 'bts']
 _currency = 'btc'
 _interval = '1d'
 
-_ppoF = 4
-_ppoS = 24
+_ppoFa = 12
+_ppoSl = 26
+_ppoSi = 4
 _ppoT = 3
 
 # secondary datasources
@@ -102,6 +103,10 @@ class Indicators
             startIdx: 0
             endIdx: inReal.length - 1
             optInTimePeriod: optInTimePeriod
+    @vmpo: (instrument, optInTimePeriod) ->
+        @ema(_.map(instrument.volumes, (volume, index) ->
+            (volume * (instrument.close[index] - instrument.close[if index == 0 then index else index-1])) / 10
+        ), optInTimePeriod)
 
 class Market
     constructor: (options) ->
@@ -320,9 +325,14 @@ class Pair
         @wt2 = Helpers.last(wt2)
         @ap = Series.average(ap)
         
-        ppo = Indicators.ppo(instrument.close, _ppoF, _ppoS, _ppoT)
+        ppo = Indicators.ppo(instrument.close, _ppoFa, _ppoSl, _ppoT)
         @ppo = Helpers.last(ppo)
         ppo1 = Helpers.last(ppo, 1)
+        ppos = Helpers.last(Indicators.ema(ppo, _ppoSi))
+        
+        vmpo = Indicators.vmpo(instrument, 3)
+        @vmpo = Helpers.last(vmpo)
+        vmpo1 = Helpers.last(vmpo, 1)
 
         plot
             rsi: @rsi - 165
@@ -336,13 +346,15 @@ class Pair
             osl2: -53
             ap: @ap
             ppo: @ppo
+            ppos: ppos
+            vmpo: @vmpo
 
         if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and rsi1 <= 30 and @rsi > 30 and @wt2 < -53 and instrument.price < @ap
             debug "#{rsi1}/#{@rsi}/#{@wt2}"
             # Buy
             for count in [1..options.iceTrades]
                 @buy(portfolio, market, instrument, options)
-        else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and @rsi > 70 and @wt1 > 50 and instrument.price > @ap and (ppo1 >= 40 and @ppo < ppo1)
+        else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and @rsi > 70 and @wt1 > 50 and instrument.price > @ap and (vmpo1 >= 60 and @vmpo < vmpo1)
             # Sell
             ticker = trading.getTicker instrument
 
@@ -529,8 +541,14 @@ init: ->
         volumePrecision: _volumePrecision
         
     setPlotOptions
+        vmpo:
+            color: 'purple'
+            secondary: true
         ppo:
             color: 'orange'
+            secondary: true
+        ppos:
+            color: 'brown'
             secondary: true
         rsi:
             color: 'blue'
