@@ -91,6 +91,18 @@ class Indicators
     @hlc3: (instrument) ->
         _.map instrument.close, (close, index) ->
             (instrument.high[index] + instrument.low[index] + instrument.close[index]) / 3
+    @maxIndex: (inReal, optInTimePeriod) ->
+        talib.MAXINDEX
+            inReal: inReal
+            startIdx: 0
+            endIdx: inReal.length - 1
+            optInTimePeriod: optInTimePeriod
+    @min: (inReal, optInTimePeriod) ->
+        talib.MIN
+            inReal: inReal
+            startIdx: 0
+            endIdx: inReal.length - 1
+            optInTimePeriod: optInTimePeriod
     @ppo: (inReal, optInFastPeriod, optInSlowPeriod, optInMAType = 0) ->
         talib.PPO
             inReal: inReal
@@ -324,7 +336,7 @@ class Pair
             rsi1 = Helpers.last(rsi, 1)
             
             plot
-                rsi: @rsi - 165
+                rsi: @rsi - 150
 
         ppo = Indicators.ppo(instrument.close, _ppoFa, _ppoSl, _ppoT)
         ap = Indicators.hlc3(instrument)
@@ -361,8 +373,8 @@ class Pair
         adx = Indicators.adx(instrument, 13)
 
         plot
-            rsi1: 70 - 165
-            rsi2: 30 - 165
+            rsi1: 70 - 150
+            rsi2: 30 - 150
             obl1: 60
             obl2: 53
             osl1: -60
@@ -372,6 +384,16 @@ class Pair
             adx: Helpers.last(adx)
 
         if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and rsi1 <= 30 and @rsi > 30 and (not @wt2 or @wt2 < -53) and instrument.price < @ap
+            maxIndex = Indicators.maxIndex(instrument.high, instrument.high.length)
+            debug "#{maxIndex}"
+            debug "#{instrument.high[maxIndex]}"
+            min = Helpers.last(Indicators.min(instrument.low, instrument.low.length - maxIndex))
+            debug "#{min}"
+
+            plotMark
+                max: instrument.high[maxIndex]
+                min: min
+            
             # Buy
             for count in [1..options.iceTrades]
                 @buy(portfolio, market, instrument, options)
