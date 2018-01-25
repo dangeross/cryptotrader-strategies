@@ -4,7 +4,7 @@ trading = require 'trading'
 talib = require 'talib'
 
 _market = 'poloniex'
-_assets = ['game']#, 'pasc', 'dcr', 'vtc', 'bts']
+_assets = ['nxt']#, 'pasc', 'dcr', 'vtc', 'bts']
 _currency = 'btc'
 _interval = '1d'
 
@@ -50,7 +50,7 @@ class Helpers
         ((numberA * pow) + (numberB * pow)) / pow
     @percentChange: (oldPrice, newPrice) ->
         ((newPrice - oldPrice) / oldPrice) * 100
-        
+
 class Series
     @abs: (array) ->
         _.map array, (value) ->
@@ -74,6 +74,14 @@ class Series
         array.slice(start)
         
 class Indicators
+    @adx: (instrument, optInTimePeriod) ->
+        talib.ADX
+            high: instrument.high
+            low: instrument.low
+            close: instrument.close
+            startIdx: 0
+            endIdx: instrument.close.length - 1
+            optInTimePeriod: optInTimePeriod
     @ema: (inReal, optInTimePeriod) ->
         talib.EMA
             inReal: inReal
@@ -310,51 +318,64 @@ class Pair
         price = instrument.price
         @bhPrice ?= price
 
-        rsis = Indicators.rsi(instrument.close, 14)
-        @rsi = rsis.pop()
-        rsi1 = rsis.pop()
-        
-        ap = Indicators.hlc3(instrument)
-        esa = Indicators.ema(ap, 10)
-        apEsa = Series.minus(Series.trim(ap, ap.length - esa.length), esa)
-        d = Indicators.ema(Series.abs(apEsa), 10)
-        ci = Series.divide(Series.trim(apEsa, apEsa.length - d.length), _.map(d, (val) -> 0.015 * val))
-        wt1 = Indicators.ema(ci, 21)
-        wt2 = Indicators.sma(wt1, 4)
-        @wt1 = Helpers.last(wt1)
-        @wt2 = Helpers.last(wt2)
-        @ap = Series.average(ap)
-        
+        if instrument.close.length > 14
+            rsi = Indicators.rsi(instrument.close, 14)
+            @rsi = Helpers.last(rsi)
+            rsi1 = Helpers.last(rsi, 1)
+            
+            plot
+                rsi: @rsi - 165
+
         ppo = Indicators.ppo(instrument.close, _ppoFa, _ppoSl, _ppoT)
-        @ppo = Helpers.last(ppo)
-        ppo1 = Helpers.last(ppo, 1)
-        ppos = Helpers.last(Indicators.ema(ppo, _ppoSi))
-        
+        ap = Indicators.hlc3(instrument)
+        @ap = Series.average(ap)
+
+        if instrument.close.length > 50
+            esa = Indicators.ema(ap, 10)
+            apEsa = Series.minus(Series.trim(ap, ap.length - esa.length), esa)
+            d = Indicators.ema(Series.abs(apEsa), 10)
+            ci = Series.divide(Series.trim(apEsa, apEsa.length - d.length), _.map(d, (val) -> 0.015 * val))
+            wt1 = Indicators.ema(ci, 21)
+            wt2 = Indicators.sma(wt1, 4)
+            @wt1 = Helpers.last(wt1)
+            @wt2 = Helpers.last(wt2)
+            
+            plot
+                wt1: @wt1
+                wt2: @wt2
+
+        if ppo.length > 0
+            @ppo = Helpers.last(ppo)
+            ppo1 = Helpers.last(ppo, 1)
+            ppoe = Indicators.ema(ppo, _ppoSi)
+            ppos = Helpers.last(ppoe)
+            
+            plot
+                ppo: @ppo
+                ppos: ppos
+
         vmpo = Indicators.vmpo(instrument, 3)
         @vmpo = Helpers.last(vmpo)
         vmpo1 = Helpers.last(vmpo, 1)
+        
+        adx = Indicators.adx(instrument, 13)
 
         plot
-            rsi: @rsi - 165
             rsi1: 70 - 165
             rsi2: 30 - 165
-            wt1: @wt1
-            wt2: @wt2
             obl1: 60
             obl2: 53
             osl1: -60
             osl2: -53
             ap: @ap
-            ppo: @ppo
-            ppos: ppos
             vmpo: @vmpo
+            adx: Helpers.last(adx)
 
-        if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and rsi1 <= 30 and @rsi > 30 and @wt2 < -53 and instrument.price < @ap
-            debug "#{rsi1}/#{@rsi}/#{@wt2}"
+        if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and rsi1 <= 30 and @rsi > 30 and (not @wt2 or @wt2 < -53) and instrument.price < @ap
             # Buy
             for count in [1..options.iceTrades]
                 @buy(portfolio, market, instrument, options)
-        else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and @rsi > 70 and @wt1 > 50 and instrument.price > @ap and (vmpo1 >= 60 and @vmpo < vmpo1)
+        else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and instrument.price > @ap and ((@rsi > 70 and @wt1 > 50) or (vmpo1 >= 50 and @vmpo < vmpo1))
             # Sell
             ticker = trading.getTicker instrument
 
@@ -541,6 +562,9 @@ init: ->
         volumePrecision: _volumePrecision
         
     setPlotOptions
+        adx:
+            color: 'black'
+            secondary: true
         vmpo:
             color: 'purple'
             secondary: true
