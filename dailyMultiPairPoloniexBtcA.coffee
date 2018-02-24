@@ -3,8 +3,8 @@ params = require 'params'
 trading = require 'trading'
 talib = require 'talib'
 
-_market = 'poloniex'
-_assets = ['nxt']#, 'pasc', 'dcr', 'vtc', 'bts']
+_market = 'bittrex'
+_assets = ['neo']#, 'pasc', 'dcr', 'vtc', 'bts']
 _currency = 'btc'
 _interval = '1d'
 
@@ -350,6 +350,7 @@ class Pair
             wt1 = Indicators.ema(ci, 21)
             wt2 = Indicators.sma(wt1, 4)
             @wt1 = Helpers.last(wt1)
+            wt1Last = Helpers.last(wt1, 1)
             @wt2 = Helpers.last(wt2)
             
             plot
@@ -384,20 +385,10 @@ class Pair
             adx: Helpers.last(adx)
 
         if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and rsi1 <= 30 and @rsi > 30 and (not @wt2 or @wt2 < -53) and instrument.price < @ap
-            maxIndex = Indicators.maxIndex(instrument.high, instrument.high.length)
-            debug "#{maxIndex}"
-            debug "#{instrument.high[maxIndex]}"
-            min = Helpers.last(Indicators.min(instrument.low, instrument.low.length - maxIndex))
-            debug "#{min}"
-
-            plotMark
-                max: instrument.high[maxIndex]
-                min: min
-            
             # Buy
             for count in [1..options.iceTrades]
                 @buy(portfolio, market, instrument, options)
-        else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and instrument.price > @ap and ((@rsi > 70 and @wt1 > 50) or (vmpo1 >= 50 and @vmpo < vmpo1))
+        else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and instrument.price > @ap and ((not @wt1 and rsi1 >= 70 and @rsi < 70) or (@wt1 > 50 and wt1Last > @wt1) or (vmpo1 >= 50 and @vmpo < vmpo1))
             # Sell
             ticker = trading.getTicker instrument
 
@@ -424,6 +415,16 @@ class Pair
             price = Helpers.round(ticker.buy * (1 + (Math.random() * 0.0001)), pairOptions.precision)
             amount = Helpers.round(limit / price, options.volumePrecision)
             debug "BUY #{instrument.asset()} #{amount} @ #{price}: #{amount * price} #{instrument.curr()}"
+            
+            maxIndex = Indicators.maxIndex(instrument.close, instrument.close.length)
+            debug "#{maxIndex}"
+            debug "#{instrument.close[maxIndex]}"
+            min = Helpers.last(Indicators.min(instrument.low, instrument.low.length - maxIndex))
+            debug "#{min}"
+
+            plotMark
+                max: instrument.close[maxIndex]
+                min: min
 
             trade = new Trade
                 id: @count++
@@ -437,6 +438,7 @@ class Pair
                     price: price
 
                 trade.buyOrder(order, options)
+                trade.sellTrigger(instrument.close[maxIndex]);
                 debug "ORDER: #{JSON.stringify(trade.buy, null, '\t')}"
 
                 if order.filled
@@ -545,6 +547,9 @@ class Trade
         @sell = _.pick(order, ['id', 'side', 'amount', 'price'])
         @sell.at = new Date().getTime()
         @sell.fee = options.fee
+        
+    sellTrigger: (price) ->
+        @trigger = price
 
     report: (instrument, price, options) ->
         pairOptions = options.pair[instrument.asset()]
@@ -564,12 +569,12 @@ class Trade
         percentChange = Helpers.percentChange(@buy.price, price)
         profit = @profit(options, price)
 
-        if percentChange >= options.takeProfit
+        if percentChange >= options.takeProfit and (not @trigger or @trigger < price)
             info "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{Helpers.toFixed(profit, pairOptions.precision)} #{instrument.curr()} (#{Helpers.toFixed(percentChange)}%)"
         else
             debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{Helpers.toFixed(profit, pairOptions.precision)} #{instrument.curr()} (#{Helpers.toFixed(percentChange)}%)"
 
-        percentChange >= options.takeProfit
+        percentChange >= options.takeProfit and (not @trigger or @trigger < price)
 
 init: ->
     debug "*********** Instance Initialised *************"
