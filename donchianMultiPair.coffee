@@ -103,7 +103,7 @@ class Portfolio
         , @)
 
     save: (storage) ->
-        storage.pairs = JSON.stringify(_.map @pairs, (pair) -> pair.save())
+        storage.pairs = _.map @pairs, (pair) -> pair.save()
 
     stop: (portfolios, instruments, options) ->
         for pair in @pairs
@@ -357,6 +357,30 @@ class Trade
 
         debug "#{instrument.asset()} #{@buy.amount} [#{@id}] #{currentProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{currentPercentChange.toFixed(2)}%): #{sellProfit.toFixed(options.decimalPlaces)} #{instrument.curr()} (#{sellPercentChange.toFixed(2)}%)"
 
+class Store
+    @trim: (storage) ->
+        _.each(_.difference(_.keys(storage), ['params','options','pairs']), (key) ->
+            delete storage[key]
+        )
+
+    @pack: (storage) ->
+        @trim(storage)
+        _.each(storage, (value, key) ->
+            try
+                storage[key] = if typeof value is not 'string' then JSON.stringify value else value
+            catch err
+                debug "#{typeof value}: #{err}"
+        )
+            
+    @unpack: (storage) ->
+        @trim(storage)
+        _.each(storage, (value, key) ->
+            try
+                storage[key] = if typeof value is 'string' then JSON.parse value else value
+            catch err
+                debug "#{typeof value}: #{err}"
+        )
+        
 init: ->
     debug "*********** Instance Initialised *************"
     @context.options =
@@ -370,6 +394,8 @@ init: ->
         sellOnStop: _sellOnStop
 
 handle: ->
+    Store.unpack(@storage)
+    
     if !@storage.params
         @storage.params = _.cloneDeep(@context.options)
 
@@ -381,6 +407,8 @@ handle: ->
     @context.portfolio.update(@portfolios, @data.instruments, @context.options)
     @context.portfolio.save(@storage)
     @storage.options = @context.options
+    
+    Store.pack(@storage)
 
 onStop: ->
     debug "************* Instance Stopped ***************"
@@ -390,10 +418,11 @@ onStop: ->
 
 onRestart: ->
     debug "************ Instance Restarted **************"
+    Store.unpack(@storage)
 
     if @storage.pairs
         @context.portfolio = new Portfolio(@context.options)
-        @context.portfolio.restore(@portfolios, @context.options, JSON.parse(@storage.pairs), _assets)
+        @context.portfolio.restore(@portfolios, @context.options, @storage.pairs, _assets)
 
     if @storage.options
         debug "************* Options Restored ***************"
@@ -411,3 +440,5 @@ onRestart: ->
 
     if @context.portfolio
         @context.portfolio.addManualTrade(_addTrade, @context.options)
+        
+    Store.pack(@storage)
