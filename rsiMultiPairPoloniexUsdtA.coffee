@@ -114,7 +114,7 @@ class Market
         , @)
 
     save: (storage) ->
-        storage.pairs = JSON.stringify(_.map @pairs, (pair) -> pair.save())
+        storage.pairs = _.map @pairs, (pair) -> pair.save()
 
     stop: (portfolios, instruments, options) ->
         for pair in @pairs
@@ -445,6 +445,15 @@ class Trade
             debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{Helpers.toFixed(profit, pairOptions.precision)} #{instrument.curr()} (#{Helpers.toFixed(gainTrigger)}%/#{Helpers.toFixed(percentChange)}%)"
 
         percentChange >= gainTrigger
+        
+class Store
+    @pack: (storage) ->
+        _.each storage, (value, key) ->
+            storage[key] = if typeof value is not 'string' then JSON.stringify value else value
+            
+    @unpack: (storage) ->
+        _.each storage, (value, key) ->
+            storage[key] = if typeof value is 'string' then JSON.parse value else value
 
 init: ->
     debug "*********** Instance Initialised *************"
@@ -464,6 +473,8 @@ init: ->
             secondary: true
 
 handle: ->
+    Store.unpack(@storage)
+    
     if !@storage.params
         @storage.params = _.cloneDeep(@context.options)
 
@@ -475,6 +486,8 @@ handle: ->
     @context.portfolio.update(@portfolios, @data.instruments, @context.options)
     @context.portfolio.save(@storage)
     @storage.options = _.cloneDeep(@context.options)
+    
+    Store.pack(@storage)
 
 onStop: ->
     debug "************* Instance Stopped ***************"
@@ -484,10 +497,11 @@ onStop: ->
 
 onRestart: ->
     debug "************ Instance Restarted **************"
+    Store.unpack(@storage)
 
     if @storage.pairs
         @context.portfolio = new Market(@context.options)
-        @context.portfolio.restore(@portfolios, @context.options, JSON.parse(@storage.pairs), _assets)
+        @context.portfolio.restore(@portfolios, @context.options, @storage.pairs, _assets)
 
     if @storage.options
         debug "************* Options Restored ***************"
@@ -506,3 +520,5 @@ onRestart: ->
 
     if @context.portfolio
         @context.portfolio.addManualTrade(_addTrade, @context.options)
+        
+    Store.pack(@storage)
