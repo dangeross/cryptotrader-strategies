@@ -447,19 +447,28 @@ class Trade
         percentChange >= gainTrigger
         
 class Store
+    @trim: (storage) ->
+        _.each(_.difference(_.keys(storage), ['params','options','pairs']), (key) ->
+            delete storage[key]
+        )
+
     @pack: (storage) ->
-        _.each storage, (value, key) ->
+        @trim(storage)
+        _.each(storage, (value, key) ->
             try
                 storage[key] = if typeof value is not 'string' then JSON.stringify value else value
             catch err
-                debug err
+                debug "#{typeof value}: #{err}"
+        )
             
     @unpack: (storage) ->
-        _.each storage, (value, key) ->
+        @trim(storage)
+        _.each(storage, (value, key) ->
             try
                 storage[key] = if typeof value is 'string' then JSON.parse value else value
             catch err
-                debug err
+                debug "#{typeof value}: #{err}"
+        )
 
 init: ->
     debug "*********** Instance Initialised *************"
