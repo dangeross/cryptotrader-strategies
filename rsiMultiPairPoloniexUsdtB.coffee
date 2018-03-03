@@ -449,11 +449,17 @@ class Trade
 class Store
     @pack: (storage) ->
         _.each storage, (value, key) ->
-            storage[key] = if typeof value is not 'string' then JSON.stringify value else value
+            try
+                storage[key] = if typeof value is not 'string' then JSON.stringify value else value
+            catch err
+                debug err
             
     @unpack: (storage) ->
         _.each storage, (value, key) ->
-            storage[key] = if typeof value is 'string' then JSON.parse value else value
+            try
+                storage[key] = if typeof value is 'string' then JSON.parse value else value
+            catch err
+                debug err
 
 init: ->
     debug "*********** Instance Initialised *************"
