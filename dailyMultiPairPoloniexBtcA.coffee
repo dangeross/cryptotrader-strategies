@@ -4,7 +4,7 @@ trading = require 'trading'
 talib = require 'talib'
 
 _market = 'bittrex'
-_assets = ['neo']#, 'pasc', 'dcr', 'vtc', 'bts']
+_assets = ['ada', 'kmd', 'dgd', 'omg', 'xvg']
 _currency = 'btc'
 _interval = '1d'
 
@@ -19,9 +19,11 @@ for asset in _assets.slice(1)
 
 # Params
 _addTrade = params.add 'Add Manual Trade', '{}'
+_chartedPair = params.addOptions "Charted Pair", _assets, _assets[0]
 _currencyLimit = params.add 'Currency Limit', 1
 _tradeLimit = params.add 'Trade Limit', 0.05
 _iceTrades = params.add 'Ice Trades', 1
+_maxTrades = params.add 'Max Trades', 1
 _fee = params.add 'Trade Fee (%)', 0.15
 _takeProfit = params.add 'Take Profit (%)', 4
 _sellOnStop = params.add 'Sell On Stop', false
@@ -188,7 +190,7 @@ class Market
         , @)
 
     save: (storage) ->
-        storage.pairs = JSON.stringify(_.map @pairs, (pair) -> pair.save())
+        storage.pairs = _.map @pairs, (pair) -> pair.save()
 
     stop: (portfolios, instruments, options) ->
         for pair in @pairs
@@ -335,8 +337,9 @@ class Pair
             @rsi = Helpers.last(rsi)
             rsi1 = Helpers.last(rsi, 1)
             
-            plot
-                rsi: @rsi - 150
+            if options.chartedPair is @asset
+                plot
+                    rsi: @rsi - 150
 
         ppo = Indicators.ppo(instrument.close, _ppoFa, _ppoSl, _ppoT)
         ap = Indicators.hlc3(instrument)
@@ -353,9 +356,10 @@ class Pair
             wt1Last = Helpers.last(wt1, 1)
             @wt2 = Helpers.last(wt2)
             
-            plot
-                wt1: @wt1
-                wt2: @wt2
+            if options.chartedPair is @asset
+                plot
+                    wt1: @wt1
+                    wt2: @wt2
 
         if ppo.length > 0
             @ppo = Helpers.last(ppo)
@@ -363,9 +367,10 @@ class Pair
             ppoe = Indicators.ema(ppo, _ppoSi)
             ppos = Helpers.last(ppoe)
             
-            plot
-                ppo: @ppo
-                ppos: ppos
+            if options.chartedPair is @asset
+                plot
+                    ppo: @ppo
+                    ppos: ppos
 
         vmpo = Indicators.vmpo(instrument, 3)
         @vmpo = Helpers.last(vmpo)
@@ -373,18 +378,19 @@ class Pair
         
         adx = Indicators.adx(instrument, 13)
 
-        plot
-            rsi1: 70 - 150
-            rsi2: 30 - 150
-            obl1: 60
-            obl2: 53
-            osl1: -60
-            osl2: -53
-            ap: @ap
-            vmpo: @vmpo
-            adx: Helpers.last(adx)
+        if options.chartedPair is @asset
+            plot
+                rsi1: 70 - 150
+                rsi2: 30 - 150
+                obl1: 60
+                obl2: 53
+                osl1: -60
+                osl2: -53
+                ap: @ap
+                vmpo: @vmpo
+                adx: Helpers.last(adx)
 
-        if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and rsi1 <= 30 and @rsi > 30 and (not @wt2 or @wt2 < -53) and instrument.price < @ap
+        if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and @trades.length < options.maxTrades and (rsi1 <= 30 and @rsi > 30 and (not @wt2 or @wt2 < -53) and instrument.price < @ap)
             # Buy
             for count in [1..options.iceTrades]
                 @buy(portfolio, market, instrument, options)
@@ -422,9 +428,10 @@ class Pair
             min = Helpers.last(Indicators.min(instrument.low, instrument.low.length - maxIndex))
             debug "#{min}"
 
-            plotMark
-                max: instrument.close[maxIndex]
-                min: min
+            if options.chartedPair is @asset
+                plotMark
+                    max: instrument.close[maxIndex]
+                    min: min
 
             trade = new Trade
                 id: @count++
@@ -575,14 +582,40 @@ class Trade
             debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{Helpers.toFixed(profit, pairOptions.precision)} #{instrument.curr()} (#{Helpers.toFixed(percentChange)}%)"
 
         percentChange >= options.takeProfit and (not @trigger or @trigger < price)
+        
+class Store
+    @trim: (storage) ->
+        _.each(_.difference(_.keys(storage), ['params','options','pairs']), (key) ->
+            delete storage[key]
+        )
+
+    @pack: (storage) ->
+        @trim(storage)
+        _.each(storage, (value, key) ->
+            try
+                storage[key] = if typeof value is not 'string' then JSON.stringify value else value
+            catch err
+                debug "#{typeof value}: #{err}"
+        )
+            
+    @unpack: (storage) ->
+        @trim(storage)
+        _.each(storage, (value, key) ->
+            try
+                storage[key] = if typeof value is 'string' then JSON.parse value else value
+            catch err
+                debug "#{typeof value}: #{err}"
+        )
 
 init: ->
     debug "*********** Instance Initialised *************"
     @context.options =
         fee: _fee / 100
+        chartedPair: _chartedPair
         currency: _currencyLimit
         tradeLimit: _tradeLimit
         iceTrades: _iceTrades
+        maxTrades: _maxTrades
         takeProfit: _takeProfit
         pair: _pairParams
         sellOnStop: _sellOnStop
@@ -630,6 +663,8 @@ init: ->
             secondary: true
             
 handle: ->
+    Store.unpack(@storage)
+        
     if !@storage.params
         @storage.params = _.cloneDeep(@context.options)
 
@@ -641,6 +676,8 @@ handle: ->
     @context.portfolio.update(@portfolios, @data.instruments, @context.options)
     @context.portfolio.save(@storage)
     @storage.options = _.cloneDeep(@context.options)
+    
+    Store.pack(@storage)
 
 onStop: ->
     debug "************* Instance Stopped ***************"
@@ -650,10 +687,11 @@ onStop: ->
 
 onRestart: ->
     debug "************ Instance Restarted **************"
+    Store.unpack(@storage)
 
     if @storage.pairs
         @context.portfolio = new Market(@context.options)
-        @context.portfolio.restore(@portfolios, @context.options, JSON.parse(@storage.pairs), _assets)
+        @context.portfolio.restore(@portfolios, @context.options, @storage.pairs, _assets)
 
     if @storage.options
         debug "************* Options Restored ***************"
@@ -672,3 +710,5 @@ onRestart: ->
 
     if @context.portfolio
         @context.portfolio.addManualTrade(_addTrade, @context.options)
+        
+    Store.pack(@storage)
