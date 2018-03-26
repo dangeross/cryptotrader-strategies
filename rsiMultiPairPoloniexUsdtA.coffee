@@ -5,32 +5,70 @@ talib = require 'talib'
 
 _market = 'poloniex'
 _assets = ['btc', 'etc', 'ltc', 'xmr']
+_base = _assets[0];
 _currency = 'usdt'
 _interval = 1
 
 # secondary datasources
-for asset in _assets.slice(1)
-    datasources.add _market, "#{asset}_#{_currency}", _interval, 400
+for asset in _assets
+    datasources.add _market, "#{asset}_#{_currency}", _interval, 500
 
 # Params
 _addTrade = params.add 'Add Manual Trade', '{}'
-_currencyLimit = params.add 'Currency Limit', 1000
-_tradeLimit = params.add 'Trade Limit', 150
-_iceTrades = params.add 'Ice Trades', 2
+_currencyLimit = params.add 'Currency Limit', 100000
+_iceTrades = params.add 'Ice Trades', 1
 _fee = params.add 'Trade Fee (%)', 0.15
-_takeProfit = params.add 'Take Profit (%)', 4
+_stopLossMax = params.add 'Stop Loss Max (%)', -3
 _sellOnStop = params.add 'Sell On Stop', false
 _volumePrecision = params.add 'Volume Precision', 6
 _pairParams = {}
 for asset in _assets
     _pairParams[asset] =
-        trade: params.addOptions "#{asset.toUpperCase()} Trading", ['Both', 'Buy', 'Sell', 'None'], 'Both'
-        precision: params.add "#{asset.toUpperCase()} Precision", 6
+        trade: params.addOptions "#{asset.toUpperCase()} Trading", ['Both', 'Buy', 'Sell', 'None'], if asset is _assets[0] then 'Both' else 'None'
 
 TradeStatus =
     ACTIVE: 1
     IDLE: 2
     UNCONFIRMED: 3
+    
+MarketConditions =
+    SUPERBEAR: "SUPERBEAR"
+    BEAR: "BEAR"
+    BORING: "BORING"
+    BULL: "BULL"
+    SUPERBULL: "SUPERBULL"
+    
+_marketParams = {}
+_marketParams.SUPERBEAR =
+    buyLimit: params.add 'SUPERBEAR Buy Limit', 10
+    dynamicSellCalc: params.add 'SUPERBEAR Dynamic Sell Calc', false
+    stopLoss: params.add 'SUPERBEAR Stop Loss (%)', -2
+    sellOnly: params.add 'SUPERBEAR Sell Only', true
+    sellTrigger: params.add 'SUPERBEAR Sell Trigger (%)', 1
+_marketParams.BEAR =
+    buyLimit: params.add 'BEAR Buy Limit', 10
+    dynamicSellCalc: params.add 'BEAR Dynamic Sell Calc', false
+    stopLoss: params.add 'BEAR Stop Loss (%)', 0
+    sellOnly: params.add 'BEAR Sell Only', true
+    sellTrigger: params.add 'BEAR Sell Trigger (%)', 2
+_marketParams.BORING =
+    buyLimit: params.add 'BORING Buy Limit', 10
+    dynamicSellCalc: params.add 'BORING Dynamic Sell Calc', false
+    stopLoss: params.add 'BORING Stop Loss (%)', 0
+    sellOnly: params.add 'BORING Sell Only', false
+    sellTrigger: params.add 'BORING Sell Trigger (%)', 4
+_marketParams.BULL =
+    buyLimit: params.add 'BULL Buy Limit', 10
+    dynamicSellCalc: params.add 'BULL Dynamic Sell Calc', true
+    stopLoss: params.add 'BULL Stop Loss (%)', 0
+    sellOnly: params.add 'BULL Sell Only', true
+    sellTrigger: params.add 'BULL Sell Trigger (%)', 4
+_marketParams.SUPERBULL =
+    buyLimit: params.add 'SUPERBULL Buy Limit', 10
+    dynamicSellCalc: params.add 'SUPERBULL Dynamic Sell Calc', true
+    stopLoss: params.add 'SUPERBULL Stop Loss (%)', 0
+    sellOnly: params.add 'SUPERBULL Sell Only', true
+    sellTrigger: params.add 'SUPERBULL Sell Trigger (%)', 4
 
 # Classes
 class Helpers
@@ -45,6 +83,10 @@ class Helpers
         ((numberA * pow) + (numberB * pow)) / pow
     @percentChange: (oldPrice, newPrice) ->
         ((newPrice - oldPrice) / oldPrice) * 100
+    @average: (array) ->
+        _.reduce(array, (total, value) -> 
+            total + (value || 0)
+        , 0) / array.length
 
 class Indicators
     @rsi: (inReal, optInTimePeriod) ->
@@ -53,12 +95,15 @@ class Indicators
             startIdx: 0
             endIdx: inReal.length - 1
             optInTimePeriod: optInTimePeriod
+    @trend: (inReal, optInTimePeriod) ->
+        Helpers.percentChange(Helpers.average(inReal.slice(inReal.length - 1 - optInTimePeriod)), inReal[inReal.length - 1])
 
 class Market
     constructor: (options) ->
         @ticks = 0
         @pairs = []
         @options = options
+        @options.condition ?= MarketConditions.BORING
 
     add: (pair) ->
         primary = (@pairs.length == 0)
@@ -131,6 +176,56 @@ class Market
     
     update: (portfolios, instruments, options) ->
         @ticks++
+        
+        basePair = @pairs[0]
+        baseInstrument = datasources.get(basePair.market, basePair.name, basePair.interval)
+        
+        @trend =
+            base: 
+                m30: Indicators.trend(baseInstrument.close, 30)
+                h4: Indicators.trend(baseInstrument.close, 240)
+                h8: Indicators.trend(baseInstrument.close, 480)
+            all:
+                m30: (_.reduce(@pairs, (total, pair) ->
+                    inst = datasources.get(pair.market, pair.name, pair.interval)
+                    total + Indicators.trend(inst.close, 30)
+                , 0) / @pairs.length)
+                h4: (_.reduce(@pairs, (total, pair) ->
+                    inst = datasources.get(pair.market, pair.name, pair.interval)
+                    total + Indicators.trend(inst.close, 240)
+                , 0) / @pairs.length)
+                h8: (_.reduce(@pairs, (total, pair) ->
+                    inst = datasources.get(pair.market, pair.name, pair.interval)
+                    total + Indicators.trend(inst.close, 480)
+                , 0) / @pairs.length)
+                
+        condition = @options.condition
+                
+        if (@trend.base.h8 < 0)
+            condition = MarketConditions.SUPERBEAR
+        else if (@trend.base.h4 < 0 or @trend.base.m30 < -1)
+            condition = MarketConditions.BEAR
+        else if (@trend.base.h8 > 0.5 and @trend.base.h4 > 0.5 and @trend.base.h4 < 2 and @trend.base.h8 < 2)
+            condition = MarketConditions.BORING
+        else if (@trend.base.h4 > 4)
+            condition = MarketConditions.SUPERBULL
+        else if (@trend.base.h8 > 3)
+            condition = MarketConditions.BULL
+        
+        if (@options.condition != condition)
+            info "Market changed from #{@options.condition} to #{condition}"
+            @options.condition = condition
+            toPlot = {}
+            toPlot[condition] = baseInstrument.price
+            plotMark toPlot
+                
+        plot
+            #a30m: @trend.all.m30
+            #a4h: @trend.all.h4
+            #a8h: @trend.all.h8
+            b30m: @trend.base.m30
+            b4h: @trend.base.h4
+            b8h: @trend.base.h8
 
         for pair in @pairs
             portfolio = portfolios[pair.market]
@@ -139,10 +234,10 @@ class Market
 
             if @ticks % 240 == 0
                 pair.report(portfolio, options)
-        debug "***** RSI: #{_.map(@pairs, (pair) ->
-            instrument = datasources.get(pair.market, pair.name, pair.interval)
-            "#{instrument.asset()} #{Helpers.toFixed(pair.rsi)}"
-        ).join(', ')}"
+        #debug "***** RSI: #{_.map(@pairs, (pair) ->
+        #    instrument = datasources.get(pair.market, pair.name, pair.interval)
+        #    "#{instrument.asset()} #{Helpers.toFixed(pair.rsi)}"
+        #).join(', ')}"
 
 class Pair
     constructor: (market, asset, currency, interval, size = 100) ->
@@ -185,7 +280,7 @@ class Pair
         ticker = trading.getTicker instrument
 
         if ticker and options.sellOnStop
-            price = Helpers.round(ticker.sell * 0.9999, pairOptions.precision)
+            price = Helpers.round(ticker.sell * 0.9999, options.precision)
 
             _.each(@trades, (trade) ->
                 @sell(portfolio, instrument, options, trade, price)
@@ -193,11 +288,11 @@ class Pair
 
     report: (portfolio, options) ->
         instrument = datasources.get(@market, @name, @interval)
-        pairOptions = options.pair[@asset]
+        marketOptions = options.market[options.condition]
         ticker = trading.getTicker instrument
 
         if ticker
-            tradePrice = Helpers.round(ticker.sell * 0.9999, pairOptions.precision)
+            tradePrice = Helpers.round(ticker.sell * 0.9999, options.precision)
             bhAmount = (_currencyLimit / _assets.length) / @bhPrice
             bhProfit = ((tradePrice * bhAmount) * (1 - options.fee)) - ((@bhPrice * bhAmount) * (1 + options.fee))
             currentProfit = _.reduce(@trades, (total, trade) ->
@@ -205,16 +300,16 @@ class Pair
             , @profit)
             currentAsset = Helpers.round(_.reduce(@trades, (total, trade) ->
                 Helpers.floatAddition(total, if trade.status is TradeStatus.IDLE then trade.buy.amount else 0)
-            , 0), options.volumePrecision);
+            , 0), options.precision);
             
-            dynamicGainTrigger = Helpers.percentChange(Helpers.last(instrument.close, 360), tradePrice) / 2
-            gainTrigger = Math.max(options.takeProfit, dynamicGainTrigger)
+            dynamicSellTrigger = Helpers.percentChange(Helpers.last(instrument.close, 360), tradePrice) / 2
+            sellTrigger = if marketOptions.dynamicSellCalc then Math.max(marketOptions.sellTrigger, dynamicSellTrigger) else marketOptions.sellTrigger
 
             if @profit >= 0
-                info "EARNINGS #{instrument.asset()}: #{Helpers.toFixed(@profit, pairOptions.precision)} #{instrument.curr()}/INC TRADES (#{currentAsset} #{instrument.asset()}) #{Helpers.toFixed(currentProfit, pairOptions.precision)} #{instrument.curr()} (B/H: #{Helpers.toFixed(bhProfit, pairOptions.precision)} #{instrument.curr()})"
+                info "EARNINGS #{instrument.asset()}: #{Helpers.toFixed(@profit, options.precision)} #{instrument.curr()}/INC TRADES (#{currentAsset} #{instrument.asset()}) #{Helpers.toFixed(currentProfit, options.precision)} #{instrument.curr()} (B/H: #{Helpers.toFixed(bhProfit, options.precision)} #{instrument.curr()})"
             else
-                warn "EARNINGS #{instrument.asset()}: #{Helpers.toFixed(@profit, pairOptions.precision)} #{instrument.curr()}/INC TRADES (#{currentAsset} #{instrument.asset()}) #{Helpers.toFixed(currentProfit, pairOptions.precision)} #{instrument.curr()} (B/H: #{Helpers.toFixed(bhProfit, pairOptions.precision)} #{instrument.curr()})"
-            _.each @trades, (trade) -> trade.report(instrument, tradePrice, gainTrigger, options)
+                warn "EARNINGS #{instrument.asset()}: #{Helpers.toFixed(@profit, options.precision)} #{instrument.curr()}/INC TRADES (#{currentAsset} #{instrument.asset()}) #{Helpers.toFixed(currentProfit, options.precision)} #{instrument.curr()} (B/H: #{Helpers.toFixed(bhProfit, options.precision)} #{instrument.curr()})"
+            _.each @trades, (trade) -> trade.report(instrument, tradePrice, sellTrigger, options)
 
     confirmOrders: (portfolio, options) ->
         now = new Date().getTime()
@@ -230,13 +325,11 @@ class Pair
                 else if order.cancelled
                     trade.status = TradeStatus.IDLE
                     delete trade.sell
-                    return false
-                else if trade.sell.at < (now - 900000)
+                else if trade.sell.at < (now - 180000)
                     warn "CANCEL ORDER: #{@asset} [#{trade.id}] #{trade.sell.amount} @ #{trade.sell.price}"
                     trade.status = TradeStatus.IDLE
                     delete trade.sell
                     trading.cancelOrder(order)
-                    return false
             else if trade.status == TradeStatus.ACTIVE and trade.buy
                 order = trading.getOrder(trade.buy.id)
                 debug "CHECK BUY ORDER: [#{trade.id}] #{JSON.stringify(_.pick(order, ['id', 'side', 'amount', 'price', 'active', 'cancelled', 'filled']), null, '\t')}"
@@ -246,7 +339,7 @@ class Pair
                     debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
                 else if order.cancelled
                     return true
-                else if trade.buy.at < (now - 900000)
+                else if trade.buy.at < (now - 180000)
                     warn "CANCEL ORDER: #{@asset} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}"
                     trading.cancelOrder(order)
                     return true
@@ -256,48 +349,69 @@ class Pair
     update: (portfolio, market, options) ->
         instrument = datasources.get(@market, @name, @interval)
         pairOptions = options.pair[@asset]
+        marketOptions = options.market[options.condition]
         price = instrument.price
         @bhPrice ?= price
 
         rsis = Indicators.rsi(instrument.close, 14)
         rsi = rsis.pop()
         rsiLast = rsis.pop()
+        
+        if instrument.asset() == _base
+            plot
+                rsi: if rsi <= 30 then -1 else if rsi >= 70 then 1 else 0
 
         if not @rsi or rsi != @rsi
             @rsi = rsi
 
-            if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and rsiLast <= 30 and @rsi > 30
-                # Buy
-                for count in [1..options.iceTrades]
-                    @buy(portfolio, market, instrument, options)
-            else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and rsiLast >= 70 and @rsi < 70
+            if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and (rsiLast <= 30 and @rsi > 30)
+                if not marketOptions.sellOnly
+                    # Buy
+                    for count in [1..options.iceTrades]
+                        @buy(portfolio, market, instrument, options)
+                else
+                    warn "AVOIDING BUY: #{options.condition} SELL-ONLY MODE"
+                    plotMark
+                        "AVOID": instrument.price
+            else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and ((rsiLast >= 70 and @rsi < 70) or marketOptions.stopLoss != 0)
                 # Sell
                 ticker = trading.getTicker instrument
 
                 if ticker
-                    price = Helpers.round(ticker.sell * 0.9999, pairOptions.precision)
-                    dynamicGainTrigger = Helpers.percentChange(Helpers.last(instrument.close, 360), price) / 2
-                    gainTrigger = Math.max(options.takeProfit, dynamicGainTrigger)
+                    price = Helpers.round(ticker.sell * 0.9999, options.precision)
+                    dynamicSellTrigger = Helpers.percentChange(Helpers.last(instrument.close, 360), price) / 2
+                    sellTrigger = if marketOptions.dynamicSellCalc then Math.max(marketOptions.sellTrigger, dynamicSellTrigger) else marketOptions.sellTrigger
                     
-                    _.each(
-                        _.filter(@trades, (trade) ->
-                            trade.status == TradeStatus.IDLE and trade.takeProfit(instrument, price, gainTrigger, options))
-                        , (trade) -> @sell(portfolio, instrument, options, trade, price)
+                    @trades = _.reject(@trades, (trade) ->
+                        if trade.status == TradeStatus.IDLE
+                            percentChange = trade.percentChange(price)
+                            profit = trade.profit(options, price)
+                            
+                            if rsiLast >= 70 and @rsi < 70 and percentChange >= sellTrigger
+                                info "#{instrument.asset()} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(sellTrigger)}%/#{Helpers.toFixed(percentChange)}%)"
+                                return @sell(portfolio, instrument, options, trade, price)
+                            else if marketOptions.stopLoss != 0 and percentChange <= marketOptions.stopLoss and percentChange >= options.stopLossMax
+                                warn "STOP-LOSS TRIGGERED: #{options.condition}"
+                                warn "#{instrument.asset()} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(marketOptions.stopLoss)}%/#{Helpers.toFixed(percentChange)}%)"
+                                return @sell(portfolio, instrument, options, trade, price)
+                            else if marketOptions.stopLoss == 0
+                                debug "#{instrument.asset()} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(sellTrigger)}%/#{Helpers.toFixed(percentChange)}%)"
+                            return false
                     , @)
 
     buy: (portfolio, market, instrument, options) ->
-        limit = options.tradeLimit * (1 - options.fee)
+        marketOptions = options.market[options.condition]
+        limit = marketOptions.buyLimit * (1 - options.fee)
         currency = portfolio.positions[instrument.base()]
         reserved = market.reserved()
         availableCurrency = options.currency - reserved
-        pairOptions = options.pair[@asset]
         ticker = trading.getTicker instrument
         
         debug "RESERVED: #{reserved} AVAILABLE: #{availableCurrency}"
 
         if ticker and availableCurrency > limit
-            price = Helpers.round(ticker.buy * (1 + (Math.random() * 0.0001)), pairOptions.precision)
-            amount = Helpers.round(limit / price, options.volumePrecision)
+            price = Helpers.round(ticker.buy * (1 + (Math.random() * 0.0001)), options.precision)
+            amount = Helpers.round(limit / price, options.precision)
             debug "BUY #{instrument.asset()} #{amount} @ #{price}: #{amount * price} #{instrument.curr()}"
 
             trade = new Trade
@@ -361,7 +475,7 @@ class Pair
                     options.currency += (trade.sell.price * trade.sell.amount) * (1 - trade.sell.fee)
                     @profit += ((trade.sell.price * trade.sell.amount) * (1 - trade.sell.fee)) - ((trade.buy.price * trade.buy.amount) * (1 + trade.buy.fee))
                     debug "CURRENCY: #{options.currency} PROFIT: #{@profit}"
-                    _.remove(@trades, (item) -> item.id == trade.id)
+                    return true
             catch err
                 if /timedout|future/gi.exec err
                     trade.sellOrder({
@@ -382,7 +496,7 @@ class Pair
                     fe: options.fee
         else
             debug "AMOUNT MISMATCH: {asset.amount} #{amount}"
-            _.remove(@trades, (item) -> item.id == trade.id)
+            return true
 
 class Trade
     constructor: (trade) ->
@@ -421,30 +535,20 @@ class Trade
         @sell.at = new Date().getTime()
         @sell.fee = options.fee
 
-    report: (instrument, price, gainTrigger, options) ->
-        pairOptions = options.pair[instrument.asset()]
-        percentChange = Helpers.percentChange(@buy.price, price)
+    report: (instrument, price, sellTrigger, options) ->
+        percentChange = @percentChange(price)
         profit = @profit(options, price)
 
         if @status != TradeStatus.IDLE
-            warn "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{Helpers.toFixed(profit, pairOptions.precision)} #{instrument.curr()} (#{Helpers.toFixed(percentChange)}%)"
+            warn "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(sellTrigger)}%/#{Helpers.toFixed(percentChange)}%)"
         else
-            debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{Helpers.toFixed(profit, pairOptions.precision)} #{instrument.curr()} (#{Helpers.toFixed(percentChange)}%)"
+            debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(sellTrigger)}%/#{Helpers.toFixed(percentChange)}%)"
 
     profit: (options, price) ->
         ((price * @buy.amount) * (1 - options.fee)) - ((@buy.price * @buy.amount) * (1 + @buy.fee))
-
-    takeProfit: (instrument, price, gainTrigger, options) ->
-        pairOptions = options.pair[instrument.asset()]
-        percentChange = Helpers.percentChange(@buy.price, price)
-        profit = @profit(options, price)
-
-        if percentChange >= gainTrigger
-            info "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{Helpers.toFixed(profit, pairOptions.precision)} #{instrument.curr()} (#{Helpers.toFixed(gainTrigger)}%/#{Helpers.toFixed(percentChange)}%)"
-        else
-            debug "#{instrument.asset()} [#{@id}] #{@buy.amount} @ #{@buy.price}: #{Helpers.toFixed(profit, pairOptions.precision)} #{instrument.curr()} (#{Helpers.toFixed(gainTrigger)}%/#{Helpers.toFixed(percentChange)}%)"
-
-        percentChange >= gainTrigger
+        
+    percentChange: (price) ->
+        Helpers.percentChange(@buy.price, price)
         
 class Store
     @trim: (storage) ->
@@ -475,16 +579,40 @@ init: ->
     @context.options =
         fee: _fee / 100
         currency: _currencyLimit
-        tradeLimit: _tradeLimit
         iceTrades: _iceTrades
-        takeProfit: _takeProfit
         pair: _pairParams
+        market: _marketParams
         sellOnStop: _sellOnStop
-        volumePrecision: _volumePrecision
+        stopLossMax: _stopLossMax
+        precision: _volumePrecision
 
     setPlotOptions
+        'AVOID':
+            color: 'orange'
+        'SUPERBEAR':
+            color: 'darkblue'
+        'BEAR':
+            color: 'dodgerblue'
+        'BORING':
+            color: 'grey'
+        'BULL':
+            color: 'aquamarine'
+        'SUPERBULL':
+            color: 'darkcyan'
         rsi:
-            color: 'blue'
+            color: 'red'
+            secondary: true
+        b30m:
+            secondary: true
+        b4h:
+            secondary: true
+        b8h:
+            secondary: true
+        a30m:
+            secondary: true
+        a4h:
+            secondary: true
+        a8h:
             secondary: true
 
 handle: ->
