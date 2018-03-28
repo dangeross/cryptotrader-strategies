@@ -16,9 +16,7 @@ for asset in _assets
 # Params
 _addTrade = params.add 'Add Manual Trade', '{}'
 _currencyLimit = params.add 'Currency Limit', 100000
-_iceTrades = params.add 'Ice Trades', 1
 _fee = params.add 'Trade Fee (%)', 0.15
-_stopLossMax = params.add 'Stop Loss Max (%)', -3
 _sellOnStop = params.add 'Sell On Stop', false
 _volumePrecision = params.add 'Volume Precision', 6
 _pairParams = {}
@@ -40,34 +38,49 @@ MarketConditions =
     
 _marketParams = {}
 _marketParams.SUPERBEAR =
-    buyLimit: params.add 'SUPERBEAR Buy Limit', 10
+    rsiLow: params.add 'SUPERBEAR RSI Buy', 30
+    buyLimit: params.add 'SUPERBEAR Buy Limit', 25
+    iceTrades: params.add 'SUPERBEAR Ice Trades', 1
     dynamicSellCalc: params.add 'SUPERBEAR Dynamic Sell Calc', false
-    stopLoss: params.add 'SUPERBEAR Stop Loss (%)', -2
+    stopLoss: params.add 'SUPERBEAR Stop Loss', true
     sellOnly: params.add 'SUPERBEAR Sell Only', true
+    rsiHigh: params.add 'SUPERBEAR RSI Sell', 70
     sellTrigger: params.add 'SUPERBEAR Sell Trigger (%)', 1
 _marketParams.BEAR =
-    buyLimit: params.add 'BEAR Buy Limit', 10
+    rsiLow: params.add 'BEAR RSI Buy', 30
+    buyLimit: params.add 'BEAR Buy Limit', 100
+    iceTrades: params.add 'BEAR Ice Trades', 1
     dynamicSellCalc: params.add 'BEAR Dynamic Sell Calc', false
-    stopLoss: params.add 'BEAR Stop Loss (%)', 0
-    sellOnly: params.add 'BEAR Sell Only', true
+    stopLoss: params.add 'BEAR Stop Loss', false
+    sellOnly: params.add 'BEAR Sell Only', false
+    rsiHigh: params.add 'BEAR RSI Sell', 70
     sellTrigger: params.add 'BEAR Sell Trigger (%)', 2
 _marketParams.BORING =
-    buyLimit: params.add 'BORING Buy Limit', 10
+    rsiLow: params.add 'BORING RSI Buy', 30
+    buyLimit: params.add 'BORING Buy Limit', 300
+    iceTrades: params.add 'BORING Ice Trades', 1
     dynamicSellCalc: params.add 'BORING Dynamic Sell Calc', false
-    stopLoss: params.add 'BORING Stop Loss (%)', 0
+    stopLoss: params.add 'BORING Stop Loss', false
     sellOnly: params.add 'BORING Sell Only', false
-    sellTrigger: params.add 'BORING Sell Trigger (%)', 4
+    rsiHigh: params.add 'BORING RSI Sell', 70
+    sellTrigger: params.add 'BORING Sell Trigger (%)', 3
 _marketParams.BULL =
-    buyLimit: params.add 'BULL Buy Limit', 10
+    rsiLow: params.add 'BULL RSI Buy', 30
+    buyLimit: params.add 'BULL Buy Limit', 300
+    iceTrades: params.add 'BULL Ice Trades', 1
     dynamicSellCalc: params.add 'BULL Dynamic Sell Calc', true
-    stopLoss: params.add 'BULL Stop Loss (%)', 0
-    sellOnly: params.add 'BULL Sell Only', true
+    stopLoss: params.add 'BULL Stop Loss', false
+    sellOnly: params.add 'BULL Sell Only', false
+    rsiHigh: params.add 'BULL RSI Sell', 70
     sellTrigger: params.add 'BULL Sell Trigger (%)', 4
 _marketParams.SUPERBULL =
-    buyLimit: params.add 'SUPERBULL Buy Limit', 10
+    rsiLow: params.add 'SUPERBULL RSI Buy', 30
+    buyLimit: params.add 'SUPERBULL Buy Limit', 300
+    iceTrades: params.add 'SUPERBULL Ice Trades', 1
     dynamicSellCalc: params.add 'SUPERBULL Dynamic Sell Calc', true
-    stopLoss: params.add 'SUPERBULL Stop Loss (%)', 0
+    stopLoss: params.add 'SUPERBULL Stop Loss', false
     sellOnly: params.add 'SUPERBULL Sell Only', true
+    rsiHigh: params.add 'SUPERBULL RSI Sell', 70
     sellTrigger: params.add 'SUPERBULL Sell Trigger (%)', 4
 
 # Classes
@@ -95,15 +108,17 @@ class Indicators
             startIdx: 0
             endIdx: inReal.length - 1
             optInTimePeriod: optInTimePeriod
-    @trend: (inReal, optInTimePeriod) ->
-        Helpers.percentChange(Helpers.average(inReal.slice(inReal.length - 1 - optInTimePeriod)), inReal[inReal.length - 1])
+    @trend: (inReal, optInTimePeriod, verbose = false) ->
+        slc = inReal.slice(-optInTimePeriod)
+        avg = Helpers.average(slc)
+        if verbose then debug "S/F/L: #{slc[0]}/#{slc[slc.length-1]}/#{slc.length} Average: #{avg} Current: #{inReal[inReal.length - 1]} Change: #{Helpers.percentChange(avg, inReal[inReal.length - 1])}"
+        Helpers.percentChange(avg, inReal[inReal.length - 1])
 
 class Market
     constructor: (options) ->
         @ticks = 0
         @pairs = []
         @options = options
-        @options.condition ?= MarketConditions.BORING
 
     add: (pair) ->
         primary = (@pairs.length == 0)
@@ -176,56 +191,34 @@ class Market
     
     update: (portfolios, instruments, options) ->
         @ticks++
+        @trend = {}
         
-        basePair = @pairs[0]
-        baseInstrument = datasources.get(basePair.market, basePair.name, basePair.interval)
-        
-        @trend =
-            base: 
-                m30: Indicators.trend(baseInstrument.close, 30)
-                h4: Indicators.trend(baseInstrument.close, 240)
-                h8: Indicators.trend(baseInstrument.close, 480)
-            all:
-                m30: (_.reduce(@pairs, (total, pair) ->
-                    inst = datasources.get(pair.market, pair.name, pair.interval)
-                    total + Indicators.trend(inst.close, 30)
-                , 0) / @pairs.length)
-                h4: (_.reduce(@pairs, (total, pair) ->
-                    inst = datasources.get(pair.market, pair.name, pair.interval)
-                    total + Indicators.trend(inst.close, 240)
-                , 0) / @pairs.length)
-                h8: (_.reduce(@pairs, (total, pair) ->
-                    inst = datasources.get(pair.market, pair.name, pair.interval)
-                    total + Indicators.trend(inst.close, 480)
-                , 0) / @pairs.length)
+        for pair in @pairs
+            inst = datasources.get(pair.market, pair.name, pair.interval)
+            @trend[pair.asset] = 
+                price: inst.price
+                m30: Indicators.trend(inst.close, 30)
+                h4: Indicators.trend(inst.close, 240)
+                h8: Indicators.trend(inst.close, 480)
                 
-        condition = @options.condition
-                
-        if (@trend.base.h8 < 0)
-            condition = MarketConditions.SUPERBEAR
-        else if (@trend.base.h4 < 0 or @trend.base.m30 < -1)
-            condition = MarketConditions.BEAR
-        else if (@trend.base.h8 > 0.5 and @trend.base.h4 > 0.5 and @trend.base.h4 < 2 and @trend.base.h8 < 2)
-            condition = MarketConditions.BORING
-        else if (@trend.base.h4 > 4)
-            condition = MarketConditions.SUPERBULL
-        else if (@trend.base.h8 > 3)
-            condition = MarketConditions.BULL
-        
-        if (@options.condition != condition)
-            info "Market changed from #{@options.condition} to #{condition}"
-            @options.condition = condition
-            toPlot = {}
-            toPlot[condition] = baseInstrument.price
-            plotMark toPlot
+        @trend.avg = 
+            m30: (_.reduce(@pairs, (total, pair) ->
+                total + @trend[pair.asset].m30
+            , 0, @) / @pairs.length)
+            h4: (_.reduce(@pairs, (total, pair) ->
+                total + @trend[pair.asset].h4
+            , 0, @) / @pairs.length)
+            h8: (_.reduce(@pairs, (total, pair) ->
+                total + @trend[pair.asset].h8
+            , 0, @) / @pairs.length)
                 
         plot
-            #a30m: @trend.all.m30
-            #a4h: @trend.all.h4
-            #a8h: @trend.all.h8
-            b30m: @trend.base.m30
-            b4h: @trend.base.h4
-            b8h: @trend.base.h8
+            a30m: @trend.avg.m30
+            a4h: @trend.avg.h4
+            a8h: @trend.avg.h8
+            b30m: @trend[_base].m30
+            b4h: @trend[_base].h4
+            b8h: @trend[_base].h8
 
         for pair in @pairs
             portfolio = portfolios[pair.market]
@@ -246,6 +239,7 @@ class Pair
         @market = market
         @asset = asset
         @currency = currency
+        @condition = MarketConditions.BORING
         @name = "#{asset}_#{currency}"
         @interval = interval
         @size = size
@@ -256,6 +250,7 @@ class Pair
         @count = pair.count || 0
         @profit = pair.profit || 0
         @bhPrice = pair.bhPrice
+        @condition = pair.condition
         @trades = _.map(pair.trades || [], (trade) ->
             trade.id ?= @count++
             new Trade(trade)
@@ -265,6 +260,7 @@ class Pair
         count: @count
         market: @market
         asset: @asset
+        condition: @condition
         currency: @currency
         name: @name
         interval: @interval
@@ -288,7 +284,7 @@ class Pair
 
     report: (portfolio, options) ->
         instrument = datasources.get(@market, @name, @interval)
-        marketOptions = options.market[options.condition]
+        marketOptions = options.market[@condition]
         ticker = trading.getTicker instrument
 
         if ticker
@@ -349,9 +345,55 @@ class Pair
     update: (portfolio, market, options) ->
         instrument = datasources.get(@market, @name, @interval)
         pairOptions = options.pair[@asset]
-        marketOptions = options.market[options.condition]
         price = instrument.price
         @bhPrice ?= price
+        
+        condition = @condition
+        reasons = []
+        
+        if (market.trend.avg.h8 < -1.5) 
+            condition = MarketConditions.SUPERBEAR
+            reasons.push("# 8 hour average price change is under -1% (#{Helpers.toFixed(market.trend.avg.h8)}%)")
+        else if (market.trend.avg.h4 < -0.5)
+            condition = MarketConditions.BEAR
+            reasons.push("# 4 hour average price change is under -0.5% (#{Helpers.toFixed(market.trend.avg.h4)}%)")
+        else if (market.trend.avg.m30 < -1)
+            condition = MarketConditions.BEAR
+            reasons.push("# 30 minute average price change is under -1% (#{Helpers.toFixed(market.trend.avg.m30)}%)")
+        else if (market.trend.avg.h8 > -1.5 and market.trend.avg.h4 > -1.5 and market.trend.avg.h4 < 2 and market.trend.avg.h8 < 2)
+            condition = MarketConditions.BORING
+        else if (market.trend.avg.h4 > 2) 
+            condition = MarketConditions.SUPERBULL
+            reasons.push("# 4 hour average price change is over 2% (#{Helpers.toFixed(market.trend.avg.h4)}%)")
+        else if (market.trend.avg.h8 > 2)
+            condition = MarketConditions.BULL
+            reasons.push("# 8 hour average price change is over 2% (#{Helpers.toFixed(market.trend.avg.h8)}%)")
+            
+        if (market.trend[@asset].h8 < -1.5)
+            condition = MarketConditions.SUPERBEAR
+            reasons.push("# 8 hour #{@asset} price change is under -1% (#{Helpers.toFixed(market.trend[@asset].h8)}%)")
+        else if (market.trend[@asset].h4 < -0.5)
+            condition = MarketConditions.BEAR
+            reasons.push("# 4 hour #{@asset} price change is under -0.5% (#{Helpers.toFixed(market.trend[@asset].h4)}%)")
+        else if (market.trend[@asset].h4 > 3) 
+            condition = MarketConditions.SUPERBULL
+            reasons.push("# 4 hour #{@asset} price change is over 3% (#{Helpers.toFixed(market.trend[@asset].h4)}%)")
+        else if (market.trend[@asset].h8 > 2)
+            condition = MarketConditions.BULL
+            reasons.push("# 8 hour #{@asset} price change is over 2% (#{Helpers.toFixed(market.trend[@asset].h8)}%)")
+
+        if (@condition != condition)
+            if @asset == _base
+                info "#{@asset.toUpperCase()} market condition changed from #{@condition} to #{condition}"
+                _.each reasons, (reason) ->
+                    debug reason
+            if @asset == _base
+                toPlot = {}
+                toPlot[condition] = market.trend[@asset].price
+                plotMark toPlot
+            @condition = condition
+        
+        marketOptions = options.market[@condition]
 
         rsis = Indicators.rsi(instrument.close, 14)
         rsi = rsis.pop()
@@ -359,21 +401,24 @@ class Pair
         
         if instrument.asset() == _base
             plot
-                rsi: if rsi <= 30 then -1 else if rsi >= 70 then 1 else 0
+                rsi: (rsi / 10) - 5
+                rsiH: (marketOptions.rsiHigh / 10) - 5
+                rsiL: (marketOptions.rsiLow / 10) - 5
 
         if not @rsi or rsi != @rsi
             @rsi = rsi
 
-            if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and (rsiLast <= 30 and @rsi > 30)
+            if (pairOptions.trade == 'Both' or pairOptions.trade == 'Buy') and (rsiLast <= marketOptions.rsiLow and @rsi > marketOptions.rsiLow)
                 if not marketOptions.sellOnly
                     # Buy
-                    for count in [1..options.iceTrades]
+                    for count in [1..marketOptions.iceTrades]
                         @buy(portfolio, market, instrument, options)
                 else
-                    warn "AVOIDING BUY: #{options.condition} SELL-ONLY MODE"
-                    plotMark
-                        "AVOID": instrument.price
-            else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and ((rsiLast >= 70 and @rsi < 70) or marketOptions.stopLoss != 0)
+                    warn "AVOIDING BUY: #{@condition} SELL-ONLY MODE"
+                    if @asset == _base
+                        plotMark
+                            "AVOID": instrument.price
+            else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and ((rsiLast >= marketOptions.rsiHigh and @rsi < marketOptions.rsiHigh) or marketOptions.stopLoss)
                 # Sell
                 ticker = trading.getTicker instrument
 
@@ -387,20 +432,20 @@ class Pair
                             percentChange = trade.percentChange(price)
                             profit = trade.profit(options, price)
                             
-                            if rsiLast >= 70 and @rsi < 70 and percentChange >= sellTrigger
+                            if rsiLast >= marketOptions.rsiHigh and @rsi < marketOptions.rsiHigh and percentChange >= sellTrigger
                                 info "#{instrument.asset()} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(sellTrigger)}%/#{Helpers.toFixed(percentChange)}%)"
                                 return @sell(portfolio, instrument, options, trade, price)
-                            else if marketOptions.stopLoss != 0 and percentChange <= marketOptions.stopLoss and percentChange >= options.stopLossMax
-                                warn "STOP-LOSS TRIGGERED: #{options.condition}"
-                                warn "#{instrument.asset()} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(marketOptions.stopLoss)}%/#{Helpers.toFixed(percentChange)}%)"
+                            else if marketOptions.stopLoss and _.isNumber(trade.stopLoss) and percentChange <= trade.stopLoss
+                                warn "STOP-LOSS TRIGGERED"
+                                warn "#{instrument.asset()} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(trade.stopLoss)}%/#{Helpers.toFixed(percentChange)}%)"
                                 return @sell(portfolio, instrument, options, trade, price)
-                            else if marketOptions.stopLoss == 0
+                            else if not marketOptions.stopLoss
                                 debug "#{instrument.asset()} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(sellTrigger)}%/#{Helpers.toFixed(percentChange)}%)"
                             return false
                     , @)
 
     buy: (portfolio, market, instrument, options) ->
-        marketOptions = options.market[options.condition]
+        marketOptions = options.market[@condition]
         limit = marketOptions.buyLimit * (1 - options.fee)
         currency = portfolio.positions[instrument.base()]
         reserved = market.reserved()
@@ -426,6 +471,7 @@ class Pair
                     price: price
 
                 trade.buyOrder(order, options)
+                trade.stopLoss = -Math.abs(market.trend.avg.h8 * 2)
                 debug "ORDER: #{JSON.stringify(trade.buy, null, '\t')}"
 
                 if order.filled
@@ -579,11 +625,9 @@ init: ->
     @context.options =
         fee: _fee / 100
         currency: _currencyLimit
-        iceTrades: _iceTrades
         pair: _pairParams
         market: _marketParams
         sellOnStop: _sellOnStop
-        stopLossMax: _stopLossMax
         precision: _volumePrecision
 
     setPlotOptions
@@ -600,19 +644,31 @@ init: ->
         'SUPERBULL':
             color: 'darkcyan'
         rsi:
-            color: 'red'
+            color: 'rgba(255, 0, 0, 0.9)'
+            secondary: true
+        rsiH:
+            color: 'rgba(255, 0, 0, 0.7)'
+            secondary: true
+        rsiL:
+            color: 'rgba(255, 0, 0, 0.7)'
             secondary: true
         b30m:
+            color: 'rgba(0, 153, 51, 0.2)'
             secondary: true
         b4h:
+            color: 'rgba(204, 204, 0, 0.2)'
             secondary: true
         b8h:
+            color: 'rgba(255, 153, 0, 0.2)'
             secondary: true
         a30m:
+            color: 'rgba(0, 153, 51, 0.9)'
             secondary: true
         a4h:
+            color: 'rgba(204, 204, 0, 0.9)'
             secondary: true
         a8h:
+            color: 'rgba(255, 153, 0, 0.9)'
             secondary: true
 
 handle: ->
