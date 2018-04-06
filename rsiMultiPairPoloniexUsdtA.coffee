@@ -100,6 +100,9 @@ class Helpers
         _.reduce(array, (total, value) -> 
             total + (value || 0)
         , 0) / array.length
+    @min: (array, optInTimePeriod) ->
+        slc = if optInTimePeriod then array.slice(-optInTimePeriod) else array
+        _.min(slc)
 
 class Indicators
     @rsi: (inReal, optInTimePeriod) ->
@@ -191,34 +194,42 @@ class Market
     
     update: (portfolios, instruments, options) ->
         @ticks++
-        @trend = {}
+        @stats = {}
         
         for pair in @pairs
             inst = datasources.get(pair.market, pair.name, pair.interval)
-            @trend[pair.asset] = 
+            lowPrice4h = Helpers.min(inst.close, 240)
+            lowPrice8h = Helpers.min(inst.close, 480)
+            @stats[pair.asset] = 
                 price: inst.price
-                m30: Indicators.trend(inst.close, 30)
-                h4: Indicators.trend(inst.close, 240)
-                h8: Indicators.trend(inst.close, 480)
+                lowPrice4h: lowPrice4h
+                lowPrice8h: lowPrice8h
+                lowPercent4h: Helpers.percentChange(lowPrice4h, inst.price)
+                lowPercent8h: Helpers.percentChange(lowPrice8h, inst.price)
+                trend30m: Indicators.trend(inst.close, 30)
+                trend4h: Indicators.trend(inst.close, 240)
+                trend8h: Indicators.trend(inst.close, 480)
                 
-        @trend.avg = 
-            m30: (_.reduce(@pairs, (total, pair) ->
-                total + @trend[pair.asset].m30
+        @stats.avg = 
+            trend30m: (_.reduce(@pairs, (total, pair) ->
+                total + @stats[pair.asset].trend30m
             , 0, @) / @pairs.length)
-            h4: (_.reduce(@pairs, (total, pair) ->
-                total + @trend[pair.asset].h4
+            trend4h: (_.reduce(@pairs, (total, pair) ->
+                total + @stats[pair.asset].trend4h
             , 0, @) / @pairs.length)
-            h8: (_.reduce(@pairs, (total, pair) ->
-                total + @trend[pair.asset].h8
+            trend8h: (_.reduce(@pairs, (total, pair) ->
+                total + @stats[pair.asset].trend8h
             , 0, @) / @pairs.length)
                 
         plot
-            a30m: @trend.avg.m30
-            a4h: @trend.avg.h4
-            a8h: @trend.avg.h8
-            b30m: @trend[_base].m30
-            b4h: @trend[_base].h4
-            b8h: @trend[_base].h8
+            at30m: @stats.avg.trend30m
+            at4h: @stats.avg.trend4h
+            at8h: @stats.avg.trend8h
+            bt30m: @stats[_base].trend30m
+            bt4h: @stats[_base].trend4h
+            bt8h: @stats[_base].trend8h
+            l4h: @stats[_base].lowPrice4h
+            l8h: @stats[_base].lowPrice8h
 
         for pair in @pairs
             portfolio = portfolios[pair.market]
@@ -351,37 +362,44 @@ class Pair
         condition = @condition
         reasons = []
         
-        if (market.trend.avg.h8 < -1.5) 
+        if (market.stats.avg.trend8h < -1.5) 
             condition = MarketConditions.SUPERBEAR
-            reasons.push("# 8 hour average price change is under -1% (#{Helpers.toFixed(market.trend.avg.h8)}%)")
-        else if (market.trend.avg.h4 < -0.5)
+            reasons.push("# 8 hour average price change is under -1% (#{Helpers.toFixed(market.stats.avg.trend8h)}%)")
+        else if (market.stats.avg.trend4h < -0.5)
             condition = MarketConditions.BEAR
-            reasons.push("# 4 hour average price change is under -0.5% (#{Helpers.toFixed(market.trend.avg.h4)}%)")
-        else if (market.trend.avg.m30 < -1)
+            reasons.push("# 4 hour average price change is under -0.5% (#{Helpers.toFixed(market.stats.avg.trend4h)}%)")
+        else if (market.stats.avg.trend30m < -1)
             condition = MarketConditions.BEAR
-            reasons.push("# 30 minute average price change is under -1% (#{Helpers.toFixed(market.trend.avg.m30)}%)")
-        else if (market.trend.avg.h8 > -1.5 and market.trend.avg.h4 > -1.5 and market.trend.avg.h4 < 2 and market.trend.avg.h8 < 2)
+            reasons.push("# 30 minute average price change is under -1% (#{Helpers.toFixed(market.stats.avg.trend30m)}%)")
+        else if (market.stats.avg.trend8h > -1.25 and market.stats.avg.trend4h > -1.25 and market.stats.avg.trend4h < 1.75 and market.stats.avg.trend8h < 1.75)
             condition = MarketConditions.BORING
-        else if (market.trend.avg.h4 > 2) 
+        else if (market.stats.avg.trend4h > 2) 
             condition = MarketConditions.SUPERBULL
-            reasons.push("# 4 hour average price change is over 2% (#{Helpers.toFixed(market.trend.avg.h4)}%)")
-        else if (market.trend.avg.h8 > 2)
+            reasons.push("# 4 hour average price change is over 2% (#{Helpers.toFixed(market.stats.avg.trend4h)}%)")
+        else if (market.stats.avg.trend8h > 2)
             condition = MarketConditions.BULL
-            reasons.push("# 8 hour average price change is over 2% (#{Helpers.toFixed(market.trend.avg.h8)}%)")
+            reasons.push("# 8 hour average price change is over 2% (#{Helpers.toFixed(market.stats.avg.trend8h)}%)")
             
-        if (market.trend[@asset].h8 < -1.5)
+        if (market.stats[@asset].trend8h < -1.5)
             condition = MarketConditions.SUPERBEAR
-            reasons.push("# 8 hour #{@asset} price change is under -1% (#{Helpers.toFixed(market.trend[@asset].h8)}%)")
-        else if (market.trend[@asset].h4 < -0.5)
+            reasons.push("# 8 hour #{@asset} price change is under -1% (#{Helpers.toFixed(market.stats[@asset].trend8h)}%)")
+        else if (market.stats[@asset].trend4h < -0.5)
             condition = MarketConditions.BEAR
-            reasons.push("# 4 hour #{@asset} price change is under -0.5% (#{Helpers.toFixed(market.trend[@asset].h4)}%)")
-        else if (market.trend[@asset].h4 > 3) 
+            reasons.push("# 4 hour #{@asset} price change is under -0.5% (#{Helpers.toFixed(market.stats[@asset].trend4h)}%)")
+        else if (market.stats[@asset].trend4h > 3) 
             condition = MarketConditions.SUPERBULL
-            reasons.push("# 4 hour #{@asset} price change is over 3% (#{Helpers.toFixed(market.trend[@asset].h4)}%)")
-        else if (market.trend[@asset].h8 > 2)
+            reasons.push("# 4 hour #{@asset} price change is over 3% (#{Helpers.toFixed(market.stats[@asset].trend4h)}%)")
+        else if (market.stats[@asset].trend8h > 2)
             condition = MarketConditions.BULL
-            reasons.push("# 8 hour #{@asset} price change is over 2% (#{Helpers.toFixed(market.trend[@asset].h8)}%)")
+            reasons.push("# 8 hour #{@asset} price change is over 2% (#{Helpers.toFixed(market.stats[@asset].trend8h)}%)")
 
+        if (market.stats[@asset].lowPercent8h < 2) 
+            condition = MarketConditions.SUPERBEAR
+            reasons.push("# 8 hour low of #{@asset} price #{Helpers.toFixed(market.stats[@asset].lowPrice8h)} (#{Helpers.toFixed(market.stats[@asset].lowPercent8h)}%)")
+        else if (market.stats[@asset].lowPercent4h < 2) 
+            condition = MarketConditions.BEAR
+            reasons.push("# 4 hour low of #{@asset} price #{Helpers.toFixed(market.stats[@asset].lowPrice4h)} (#{Helpers.toFixed(market.stats[@asset].lowPercent4h)}%)")
+            
         if (@condition != condition)
             if @asset == _base
                 info "#{@asset.toUpperCase()} market condition changed from #{@condition} to #{condition}"
@@ -389,7 +407,7 @@ class Pair
                     debug reason
             if @asset == _base
                 toPlot = {}
-                toPlot[condition] = market.trend[@asset].price
+                toPlot[condition] = market.stats[@asset].price
                 plotMark toPlot
             @condition = condition
         
@@ -418,7 +436,7 @@ class Pair
                     if @asset == _base
                         plotMark
                             "AVOID": instrument.price
-            else if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and ((rsiLast >= marketOptions.rsiHigh and @rsi < marketOptions.rsiHigh) or marketOptions.stopLoss)
+            if (pairOptions.trade == 'Both' or pairOptions.trade == 'Sell') and ((rsiLast >= marketOptions.rsiHigh and @rsi < marketOptions.rsiHigh) or marketOptions.stopLoss)
                 # Sell
                 ticker = trading.getTicker instrument
 
@@ -435,9 +453,9 @@ class Pair
                             if rsiLast >= marketOptions.rsiHigh and @rsi < marketOptions.rsiHigh and percentChange >= sellTrigger
                                 info "#{instrument.asset()} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(sellTrigger)}%/#{Helpers.toFixed(percentChange)}%)"
                                 return @sell(portfolio, instrument, options, trade, price)
-                            else if marketOptions.stopLoss and _.isNumber(trade.stopLoss) and percentChange <= trade.stopLoss
+                            else if marketOptions.stopLoss and _.isNumber(trade.stopLoss) and price <= trade.stopLoss
                                 warn "STOP-LOSS TRIGGERED"
-                                warn "#{instrument.asset()} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(trade.stopLoss)}%/#{Helpers.toFixed(percentChange)}%)"
+                                warn "#{instrument.asset()} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(trade.stopLoss)}/#{Helpers.toFixed(price)})"
                                 return @sell(portfolio, instrument, options, trade, price)
                             else if not marketOptions.stopLoss
                                 debug "#{instrument.asset()} [#{trade.id}] #{trade.buy.amount} @ #{trade.buy.price}: #{Helpers.toFixed(profit, options.precision)} #{instrument.curr()} (#{Helpers.toFixed(sellTrigger)}%/#{Helpers.toFixed(percentChange)}%)"
@@ -471,8 +489,9 @@ class Pair
                     price: price
 
                 trade.buyOrder(order, options)
-                trade.stopLoss = -Math.abs(market.trend.avg.h8 * 2)
+                trade.stopLoss = market.stats[@asset].lowPrice4h
                 debug "ORDER: #{JSON.stringify(trade.buy, null, '\t')}"
+                debug "STOP-LOSS: #{trade.stopLoss}"
 
                 if order.filled
                     options.currency -= (trade.buy.price * trade.buy.amount) * (1 + trade.buy.fee)
@@ -652,22 +671,22 @@ init: ->
         rsiL:
             color: 'rgba(255, 0, 0, 0.7)'
             secondary: true
-        b30m:
+        bt30m:
             color: 'rgba(0, 153, 51, 0.2)'
             secondary: true
-        b4h:
+        bt4h:
             color: 'rgba(204, 204, 0, 0.2)'
             secondary: true
-        b8h:
+        bt8h:
             color: 'rgba(255, 153, 0, 0.2)'
             secondary: true
-        a30m:
+        at30m:
             color: 'rgba(0, 153, 51, 0.9)'
             secondary: true
-        a4h:
+        at4h:
             color: 'rgba(204, 204, 0, 0.9)'
             secondary: true
-        a8h:
+        at8h:
             color: 'rgba(255, 153, 0, 0.9)'
             secondary: true
 
