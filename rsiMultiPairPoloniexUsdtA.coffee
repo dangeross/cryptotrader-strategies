@@ -42,7 +42,7 @@ _marketParams.SUPERBEAR =
     buyLimit: params.add 'SUPERBEAR Buy Limit', 25
     iceTrades: params.add 'SUPERBEAR Ice Trades', 1
     dynamicSellCalc: params.add 'SUPERBEAR Dynamic Sell Calc', false
-    stopLoss: params.add 'SUPERBEAR Stop Loss', true
+    stopLoss: params.add 'SUPERBEAR Stop Loss', false
     sellOnly: params.add 'SUPERBEAR Sell Only', true
     rsiHigh: params.add 'SUPERBEAR RSI Sell', 70
     sellTrigger: params.add 'SUPERBEAR Sell Trigger (%)', 1
@@ -393,10 +393,13 @@ class Pair
             condition = MarketConditions.BULL
             reasons.push("# 8 hour #{@asset} price change is over 2% (#{Helpers.toFixed(market.stats[@asset].trend8h)}%)")
 
-        if (market.stats[@asset].lowPercent8h < 2) 
+        if (market.stats[@asset].lowPercent8h <= 1) 
             condition = MarketConditions.SUPERBEAR
             reasons.push("# 8 hour low of #{@asset} price #{Helpers.toFixed(market.stats[@asset].lowPrice8h)} (#{Helpers.toFixed(market.stats[@asset].lowPercent8h)}%)")
-        else if (market.stats[@asset].lowPercent4h < 2) 
+        else if (market.stats[@asset].lowPercent4h <= 0.2) 
+            condition = MarketConditions.SUPERBEAR
+            reasons.push("# 4 hour low of #{@asset} price #{Helpers.toFixed(market.stats[@asset].lowPrice8h)} (#{Helpers.toFixed(market.stats[@asset].lowPercent8h)}%)")
+        else if (market.stats[@asset].lowPercent4h <= 1) 
             condition = MarketConditions.BEAR
             reasons.push("# 4 hour low of #{@asset} price #{Helpers.toFixed(market.stats[@asset].lowPrice4h)} (#{Helpers.toFixed(market.stats[@asset].lowPercent4h)}%)")
             
